@@ -1,8 +1,6 @@
-import { registerRootComponent } from 'expo';
+// index.js – entry point
+import "react-native-gesture-handler";   // <- MUST be first
+import { registerRootComponent } from "expo";
+import App from "./App";
 
-import FlipDrill from './src/components/FlipDrill';
-
-// registerRootComponent calls AppRegistry.registerComponent('main', () => App);
-// It also ensures that whether you load the app in Expo Go or in a native build,
-// the environment is set up appropriately
-registerRootComponent(FlipDrill);
+registerRootComponent(App);

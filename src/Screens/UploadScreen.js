@@ -1,41 +1,36 @@
+// UploadScreen.js  – pick a PDF then jump to the “build” spinner
 import React, { useState } from "react";
 import { View, Text, Button } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 
-export default function Upload({ navigation }) {
-  const [file, setFile] = useState(null);
-  const [testN, setTestN] = useState(0);   // TODO slider / picker
+export default function UploadScreen({ navigation }) {
+  const [file, setFile]       = useState(null);
+  const [testN, setTestN]     = useState(0);   // ↔ BuildScreen uses testN
 
-  async function pick() {
-    const res = await DocumentPicker.getDocumentAsync({ type:"application/pdf" });
-    if (res.canceled) return;
-    setFile(res.assets[0]);
-  }
-
-  async function upload() {
-    const body = new FormData();
-    body.append("file", {
-      uri : file.uri,
-      name: file.name,
+  /* choose a local PDF */
+  const pick = async () => {
+    const res = await DocumentPicker.getDocumentAsync({
       type: "application/pdf",
+      copyToCacheDirectory: false,
     });
-    body.append("deck_name", file.name.replace(".pdf",""));
-    if (testN) body.append("test_chunks", String(testN));
+    if (!res.canceled) setFile(res.assets[0]);   // assets[0] has uri / name
+  };
 
-    const r = await fetch("http://127.0.0.1:8000/api/builder/generate/", {
-      method : "POST",
-      headers: { "Authorization": "Bearer dummy" },   // later JWT
-      body,
-    }).then(r=>r.json());
-
-    navigation.navigate("Build", { file: pickedFile, testN });
-  }
+  /* go to build screen */
+  const upload = () => {
+    if (!file) return;
+    navigation.navigate("Build", { file, testN });   // prop names match Build
+  };
 
   return (
-    <View style={{flex:1,justifyContent:"center",alignItems:"center"}}>
+    <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
       <Button title="Choose PDF" onPress={pick} />
-      {file && <Text>{file.name}</Text>}
-      {file && <Button title="Upload & Build" onPress={upload} />}
+
+      {file && <Text style={{ marginVertical: 8 }}>{file.name}</Text>}
+
+      {file && (
+        <Button title="Upload & Build" onPress={upload} />
+      )}
     </View>
   );
 }
