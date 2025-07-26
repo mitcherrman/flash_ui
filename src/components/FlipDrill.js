@@ -1,5 +1,9 @@
 // src/components/FlipDrill.js
-import React, { useState, useEffect, useRef } from "react";
+/* FlipDrill – two‑sided flash‑card drill (basic / MC)
+   – Always calls the same hooks per render (no more hook‑order error)
+   – Uses API_BASE from src/config.js
+*/
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   SafeAreaView,
   View,
@@ -10,98 +14,20 @@ import {
   Animated,
   PanResponder,
   ActivityIndicator,
-  Platform,
 } from "react-native";
+import { API_BASE } from "../config";
 
-import { API_BASE } from "../config";      // ⬅ adjust path if config lives elsewhere
-
-/* ------------------------------------------------------------------ */
-/*            Flip‑drill component  (Game 2 – mastery drill)          */
-/* ------------------------------------------------------------------ */
-export default function FlipDrill({ deckId, mode = "basic" }) {
-  /* --------------- runtime sanity check ---------------------------- */
-  if (!deckId) {
-    console.warn("[FlipDrill] deckId prop is", deckId);
-  }
-
-  /* --------------- state ------------------------------------------- */
-  const [cards,   setCards]   = useState([]);        // fetched from API
-  const [idx,     setIdx]     = useState(0);         // current card index
+export default function FlipDrill({ deckId, n = 12 }) {
+  /* ---------- state ---------- */
+  const [cards,   setCards]   = useState([]);
+  const [idx,     setIdx]     = useState(0);
   const [flipped, setFlipped] = useState(false);
-  const [status,  setStatus]  = useState("loading"); // loading | empty | ready | error
-  const [err,     setErr]     = useState("");
 
-  /* --------------- fetch on mount ---------------------------------- */
-  useEffect(() => {
-    const url =
-      deckId && deckId !== "undefined"
-        ? `${API_BASE}/hand?deck_id=${deckId}&n=12`
-        : `${API_BASE}/hand?n=12`;
-
-    console.log("[FlipDrill] fetching", url);
-
-    fetch(url)
-      .then(async (res) => {
-        if (!res.ok)
-          throw new Error(`HTTP ${res.status} – ${await res.text()}`);
-        return res.json();
-      })
-      .then((data) => {
-        console.log("[FlipDrill] fetched", data.length, "cards");
-        if (data.length === 0) {
-          setStatus("empty");
-        } else {
-          setCards(data);
-          setStatus("ready");
-        }
-      })
-      .catch((e) => {
-        console.error("[FlipDrill] fetch ERROR", e);
-        setErr(String(e));
-        setStatus("error");
-      });
-  }, [deckId]);
-
-  /* ------------------------------------------------------------------ */
-  /*           early‑return UI for loading / empty / error              */
-  /* ------------------------------------------------------------------ */
-  if (status === "loading") {
-    return (
-      <Center>
-        <ActivityIndicator size="large" />
-        <Text style={{ marginTop: 12 }}>Fetching cards…</Text>
-      </Center>
-    );
-  }
-
-  if (status === "empty") {
-    return (
-      <Center>
-        <Text>No cards found for this deck.</Text>
-        <Text style={styles.small}>
-          (Check Django console – maybe card generation failed.)
-        </Text>
-      </Center>
-    );
-  }
-
-  if (status === "error") {
-    return (
-      <Center>
-        <Text style={{ color: "red", textAlign: "center" }}>
-          {err || "Load failed"}
-        </Text>
-      </Center>
-    );
-  }
-
-  /* ------------------------------------------------------------------ */
-  /*                drill logic  (status === "ready")                   */
-  /* ------------------------------------------------------------------ */
-  const card = cards[idx];
-
-  /* flip animation */
+  /* ---------- refs / anim ---------- */
   const flipAnim = useRef(new Animated.Value(0)).current;
+  const panX     = useRef(new Animated.Value(0)).current;
+
+  /* run on *every* render – safe even when cards.length === 0 */
   useEffect(() => {
     Animated.timing(flipAnim, {
       toValue: flipped ? 180 : 0,
@@ -119,31 +45,58 @@ export default function FlipDrill({ deckId, mode = "basic" }) {
     outputRange: ["180deg", "360deg"],
   });
 
-  /* swipe gesture */
-  const panX = useRef(new Animated.Value(0)).current;
-  const responder = PanResponder.create({
-    onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 20,
-    onPanResponderMove: (_, g) => panX.setValue(g.dx),
-    onPanResponderRelease: (_, g) => {
-      if (g.dx > 100) prevCard();
-      else if (g.dx < -100) nextCard();
-      Animated.spring(panX, { toValue: 0, useNativeDriver: true }).start();
-    },
-  });
+  /* ---------- fetch once ---------- */
+  useEffect(() => {
+    const url = `${API_BASE}/hand?deck_id=${deckId}&n=${n}`;
+    console.log("[FlipDrill] fetching", url);
+    fetch(url)
+      .then((r) => r.json())
+      .then((data) => {
+        console.log("[FlipDrill] fetched", data.length, "cards");
+        setCards(data);
+        setIdx(0);
+      })
+      .catch((e) => console.error("[FlipDrill] API error", e));
+  }, [deckId, n]);
 
-  /* nav helpers */
-  function nextCard() {
+  /* ---------- gestures ---------- */
+  const responder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 20,
+        onPanResponderMove: (_, g) => panX.setValue(g.dx),
+        onPanResponderRelease: (_, g) => {
+          if (g.dx > 100) prevCard();
+          else if (g.dx < -100) nextCard();
+          Animated.spring(panX, { toValue: 0, useNativeDriver: true }).start();
+        },
+      }),
+    [cards.length]
+  );
+
+  /* ---------- helpers ---------- */
+  const nextCard = () => {
     setIdx((i) => (i + 1) % cards.length);
     setFlipped(false);
-  }
-  function prevCard() {
+  };
+  const prevCard = () => {
     setIdx((i) => (i - 1 + cards.length) % cards.length);
     setFlipped(false);
+  };
+
+  /* ---------- early loading UI (but *after* hooks!) ---------- */
+  if (!cards.length) {
+    return (
+      <SafeAreaView style={styles.center}>
+        <ActivityIndicator size="large" />
+        <Text style={{ marginTop: 12 }}>Loading cards…</Text>
+      </SafeAreaView>
+    );
   }
 
-  /* ------------------------------------------------------------------ */
-  /*                          RENDER                                    */
-  /* ------------------------------------------------------------------ */
+  const card = cards[idx];
+
+  /* ---------- main UI ---------- */
   return (
     <SafeAreaView style={styles.container}>
       <Text style={styles.counter}>
@@ -195,18 +148,7 @@ export default function FlipDrill({ deckId, mode = "basic" }) {
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* helper to center children */
-function Center({ children }) {
-  return (
-    <SafeAreaView style={styles.center}>
-      {children}
-    </SafeAreaView>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* styles */
+/* ---------- styles ---------- */
 const { width } = Dimensions.get("window");
 const CARD_W = width * 0.8;
 const CARD_H = CARD_W * 0.6;
@@ -221,10 +163,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#f9fafb",
-    paddingHorizontal: 20,
   },
-  small: { fontSize: 12, color: "#64748b", marginTop: 4 },
   counter: {
     marginTop: 16,
     fontSize: 16,
