@@ -1,7 +1,8 @@
 // src/components/FlipDrill.js
 /* FlipDrill – two‑sided flash‑card drill (basic / MC)
-   – Always calls the same hooks per render (no more hook‑order error)
-   – Uses API_BASE from src/config.js
+   • Re‑sizes automatically when the phone/tablet rotates
+   • Works on native *and* web
+   • No hook‑order warnings
 */
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
@@ -10,25 +11,31 @@ import {
   Text,
   StyleSheet,
   Pressable,
-  Dimensions,
+  useWindowDimensions,   // ← live screen size
   Animated,
   PanResponder,
   ActivityIndicator,
 } from "react-native";
-import { API_BASE } from "../config";
+import { API_BASE } from "../config";           // adjust path if needed
 const API_ROOT = `${API_BASE}/api/flashcards`;
 
 export default function FlipDrill({ deckId, n = 12 }) {
+  /* ---------- live screen size ---------- */
+  const { width } = useWindowDimensions();          // re‑renders on rotate
+  const CARD_W    = width * 0.8;
+  const CARD_H    = CARD_W * 0.6;
+
   /* ---------- state ---------- */
   const [cards,   setCards]   = useState([]);
   const [idx,     setIdx]     = useState(0);
   const [flipped, setFlipped] = useState(false);
+  const [err,     setErr]     = useState("");
 
   /* ---------- refs / anim ---------- */
   const flipAnim = useRef(new Animated.Value(0)).current;
   const panX     = useRef(new Animated.Value(0)).current;
 
-  /* run on *every* render – safe even when cards.length === 0 */
+  /* flip animation (runs every render) */
   useEffect(() => {
     Animated.timing(flipAnim, {
       toValue: flipped ? 180 : 0,
@@ -46,30 +53,27 @@ export default function FlipDrill({ deckId, n = 12 }) {
     outputRange: ["180deg", "360deg"],
   });
 
-  /* fetch cards once */
-useEffect(() => {
-  const url = `${API_ROOT}/hand/?deck_id=${deckId}&n=12`;
-  console.log("[FlipDrill] fetching", url);
-
-  fetch(url)
-    .then(async (r) => {
-      if (!r.ok) {
-        const text = await r.text();
-        throw new Error(`HTTP ${r.status} – ${text.slice(0,120)}`);
+  /* ---------- fetch cards once ---------- */
+  useEffect(() => {
+    (async () => {
+      try {
+        const url = `${API_ROOT}/hand/?deck_id=${deckId}&n=${n}`;
+        console.log("[FlipDrill] fetching", url);
+        const r   = await fetch(url);
+        if (!r.ok) {
+          const txt = await r.text();
+          throw new Error(`HTTP ${r.status} • ${txt.slice(0,120)}`);
+        }
+        const data = await r.json();
+        console.log("[FlipDrill] fetched", data.length, "cards");
+        setCards(data);
+        setIdx(0);
+      } catch (e) {
+        console.error("[FlipDrill] API error", e);
+        setErr(String(e));
       }
-      return r.json();
-    })
-    .then((data) => {
-      console.log("[FlipDrill] fetched", data.length, "cards");
-      setCards(data);
-      setIdx(0);
-    })
-    .catch((e) => {
-      console.error("[FlipDrill] API error", e);
-      setErr(e.message);                    // add err state if you like
-    });
-}, []);
-
+    })();
+  }, [deckId, n]);
 
   /* ---------- gestures ---------- */
   const responder = useMemo(
@@ -96,7 +100,14 @@ useEffect(() => {
     setFlipped(false);
   };
 
-  /* ---------- early loading UI (but *after* hooks!) ---------- */
+  /* ---------- early / error UI ---------- */
+  if (err) {
+    return (
+      <SafeAreaView style={styles.center}>
+        <Text style={{color:"red",textAlign:"center"}}>{err}</Text>
+      </SafeAreaView>
+    );
+  }
   if (!cards.length) {
     return (
       <SafeAreaView style={styles.center}>
@@ -117,7 +128,11 @@ useEffect(() => {
 
       <Animated.View
         {...responder.panHandlers}
-        style={[styles.cardWrap, { transform: [{ translateX: panX }] }]}
+        style={[
+          styles.cardWrap,
+          { width: CARD_W, height: CARD_H },             // ← live size
+          { transform: [{ translateX: panX }] },
+        ]}
       >
         {/* front */}
         <Animated.View
@@ -160,11 +175,7 @@ useEffect(() => {
   );
 }
 
-/* ---------- styles ---------- */
-const { width } = Dimensions.get("window");
-const CARD_W = width * 0.8;
-const CARD_H = CARD_W * 0.6;
-
+/* ---------- base styles ---------- */
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -183,8 +194,6 @@ const styles = StyleSheet.create({
   },
   cardWrap: {
     marginTop: 40,
-    width: CARD_W,
-    height: CARD_H,
   },
   card: {
     position: "absolute",
@@ -199,6 +208,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
+    paddingHorizontal: 12,
   },
   cardBack: {
     backgroundColor: "#e0f2fe",
@@ -207,7 +217,6 @@ const styles = StyleSheet.create({
     fontSize: 22,
     textAlign: "center",
     color: "#0f172a",
-    paddingHorizontal: 8,
   },
   buttons: {
     position: "absolute",
