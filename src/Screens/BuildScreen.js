@@ -16,6 +16,7 @@ import {
   Button,
   Platform,
 } from "react-native";
+import { API_BASE } from "../config";
 
 export default function BuildScreen({ route, navigation }) {
   const { file, testN } = route.params;
@@ -49,10 +50,13 @@ export default function BuildScreen({ route, navigation }) {
         /* ────────────────────────────────────────────────────────────────
          * 2) POST to Django backend
          * ──────────────────────────────────────────────────────────────── */
-        const res = await fetch(
-          "http://127.0.0.1:8000/api/flashcards/generate/",
-          { method: "POST", body }
-        );
+        
+        const res = await fetch(`${API_BASE}/api/flashcards/generate/`, { method: "POST", body });
+        
+        //const res = await fetch(
+        //  "http://127.0.0.1:8000/api/flashcards/generate/",
+        //  { method: "POST", body }
+        //);
 
         if (!res.ok) {
           /* Read *text* first – may contain {"detail": "..."} from Django */

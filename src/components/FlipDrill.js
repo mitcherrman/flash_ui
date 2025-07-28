@@ -16,6 +16,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { API_BASE } from "../config";
+const API_ROOT = `${API_BASE}/api/flashcards`;
 
 export default function FlipDrill({ deckId, n = 12 }) {
   /* ---------- state ---------- */
@@ -45,19 +46,30 @@ export default function FlipDrill({ deckId, n = 12 }) {
     outputRange: ["180deg", "360deg"],
   });
 
-  /* ---------- fetch once ---------- */
-  useEffect(() => {
-    const url = `${API_BASE}/hand?deck_id=${deckId}&n=${n}`;
-    console.log("[FlipDrill] fetching", url);
-    fetch(url)
-      .then((r) => r.json())
-      .then((data) => {
-        console.log("[FlipDrill] fetched", data.length, "cards");
-        setCards(data);
-        setIdx(0);
-      })
-      .catch((e) => console.error("[FlipDrill] API error", e));
-  }, [deckId, n]);
+  /* fetch cards once */
+useEffect(() => {
+  const url = `${API_ROOT}/hand/?deck_id=${deckId}&n=12`;
+  console.log("[FlipDrill] fetching", url);
+
+  fetch(url)
+    .then(async (r) => {
+      if (!r.ok) {
+        const text = await r.text();
+        throw new Error(`HTTP ${r.status} – ${text.slice(0,120)}`);
+      }
+      return r.json();
+    })
+    .then((data) => {
+      console.log("[FlipDrill] fetched", data.length, "cards");
+      setCards(data);
+      setIdx(0);
+    })
+    .catch((e) => {
+      console.error("[FlipDrill] API error", e);
+      setErr(e.message);                    // add err state if you like
+    });
+}, []);
+
 
   /* ---------- gestures ---------- */
   const responder = useMemo(
