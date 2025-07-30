@@ -153,6 +153,9 @@ export default function FlipDrill({ deckId, n = 12 }) {
           ]}
         >
           <Text style={styles.text}>{card.back}</Text>
+          <Text style={[styles.text, {fontSize:14, marginTop:12, color:"#475569"}]}>
+            {card.excerpt?.slice(0,120)}…
+          </Text>
         </Animated.View>
 
         {/* tap to flip */}
