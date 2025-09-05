@@ -1,8 +1,8 @@
 // src/components/FlipDrill.js
-/* FlipDrill – two‑sided flash‑card drill (basic / MC)
-   • Re‑sizes automatically when the phone/tablet rotates
+/* FlipDrill – two-sided flash-card drill (basic / MC)
+   • Re-sizes automatically when the phone/tablet rotates
    • Works on native *and* web
-   • No hook‑order warnings
+   • Toggle to show/hide source context (excerpt + page)
 */
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
@@ -11,31 +11,33 @@ import {
   Text,
   StyleSheet,
   Pressable,
-  useWindowDimensions,   // ← live screen size
+  useWindowDimensions,
   Animated,
   PanResponder,
   ActivityIndicator,
+  Switch,
 } from "react-native";
-import { API_BASE } from "../config";           // adjust path if needed
+import { API_BASE } from "../config";
 const API_ROOT = `${API_BASE}/api/flashcards`;
 
 export default function FlipDrill({ deckId, n = 12 }) {
   /* ---------- live screen size ---------- */
-  const { width } = useWindowDimensions();          // re‑renders on rotate
+  const { width } = useWindowDimensions();
   const CARD_W    = width * 0.8;
   const CARD_H    = CARD_W * 0.6;
 
   /* ---------- state ---------- */
-  const [cards,   setCards]   = useState([]);
-  const [idx,     setIdx]     = useState(0);
-  const [flipped, setFlipped] = useState(false);
-  const [err,     setErr]     = useState("");
+  const [cards,   setCards]     = useState([]);
+  const [idx,     setIdx]       = useState(0);
+  const [flipped, setFlipped]   = useState(false);
+  const [err,     setErr]       = useState("");
+  const [showCtx, setShowCtx]   = useState(true);   // ← new: context toggle
 
   /* ---------- refs / anim ---------- */
   const flipAnim = useRef(new Animated.Value(0)).current;
   const panX     = useRef(new Animated.Value(0)).current;
 
-  /* flip animation (runs every render) */
+  /* flip animation */
   useEffect(() => {
     Animated.timing(flipAnim, {
       toValue: flipped ? 180 : 0,
@@ -44,22 +46,16 @@ export default function FlipDrill({ deckId, n = 12 }) {
     }).start();
   }, [flipped]);
 
-  const frontRot = flipAnim.interpolate({
-    inputRange: [0, 180],
-    outputRange: ["0deg", "180deg"],
-  });
-  const backRot = flipAnim.interpolate({
-    inputRange: [0, 180],
-    outputRange: ["180deg", "360deg"],
-  });
+  const frontRot = flipAnim.interpolate({ inputRange: [0, 180], outputRange: ["0deg", "180deg"] });
+  const backRot  = flipAnim.interpolate({ inputRange: [0, 180], outputRange: ["180deg", "360deg"] });
 
-  /* ---------- fetch cards once ---------- */
+  /* fetch cards once (per deckId/n) */
   useEffect(() => {
     (async () => {
       try {
         const url = `${API_ROOT}/hand/?deck_id=${deckId}&n=${n}`;
         console.log("[FlipDrill] fetching", url);
-        const r   = await fetch(url);
+        const r = await fetch(url);
         if (!r.ok) {
           const txt = await r.text();
           throw new Error(`HTTP ${r.status} • ${txt.slice(0,120)}`);
@@ -75,7 +71,7 @@ export default function FlipDrill({ deckId, n = 12 }) {
     })();
   }, [deckId, n]);
 
-  /* ---------- gestures ---------- */
+  /* gestures */
   const responder = useMemo(
     () =>
       PanResponder.create({
@@ -90,14 +86,14 @@ export default function FlipDrill({ deckId, n = 12 }) {
     [cards.length]
   );
 
-  /* ---------- helpers ---------- */
-  const nextCard = () => {
-    setIdx((i) => (i + 1) % cards.length);
-    setFlipped(false);
-  };
-  const prevCard = () => {
-    setIdx((i) => (i - 1 + cards.length) % cards.length);
-    setFlipped(false);
+  /* helpers */
+  const nextCard = () => { setIdx((i) => (i + 1) % cards.length); setFlipped(false); };
+  const prevCard = () => { setIdx((i) => (i - 1 + cards.length) % cards.length); setFlipped(false); };
+
+  const ellipsize = (s, limit = 200) => {
+    if (!s) return "";
+    const trimmed = s.trim();
+    return trimmed.length > limit ? trimmed.slice(0, limit - 1) + "…" : trimmed;
   };
 
   /* ---------- early / error UI ---------- */
@@ -122,15 +118,21 @@ export default function FlipDrill({ deckId, n = 12 }) {
   /* ---------- main UI ---------- */
   return (
     <SafeAreaView style={styles.container}>
-      <Text style={styles.counter}>
-        Card {idx + 1}/{cards.length}
-      </Text>
+      {/* top bar: counter + context toggle */}
+      <View style={styles.topBar}>
+        <Text style={styles.counter}>Card {idx + 1}/{cards.length}</Text>
+
+        <View style={styles.ctxToggle}>
+          <Text style={styles.ctxLabel}>Show context</Text>
+          <Switch value={showCtx} onValueChange={setShowCtx} />
+        </View>
+      </View>
 
       <Animated.View
         {...responder.panHandlers}
         style={[
           styles.cardWrap,
-          { width: CARD_W, height: CARD_H },             // ← live size
+          { width: CARD_W, height: CARD_H },
           { transform: [{ translateX: panX }] },
         ]}
       >
@@ -153,9 +155,18 @@ export default function FlipDrill({ deckId, n = 12 }) {
           ]}
         >
           <Text style={styles.text}>{card.back}</Text>
-          <Text style={[styles.text, {fontSize:14, marginTop:12, color:"#475569"}]}>
-            {card.excerpt?.slice(0,120)}…
-          </Text>
+
+          {/* context block (excerpt + page) */}
+          {showCtx && (card.excerpt || card.page != null) && (
+            <View style={styles.contextBox}>
+              {!!card.excerpt && (
+                <Text style={styles.excerpt}>"{ellipsize(card.excerpt, 220)}"</Text>
+              )}
+              {card.page != null && (
+                <Text style={styles.pageNote}>p. {card.page}</Text>
+              )}
+            </View>
+          )}
         </Animated.View>
 
         {/* tap to flip */}
@@ -178,7 +189,7 @@ export default function FlipDrill({ deckId, n = 12 }) {
   );
 }
 
-/* ---------- base styles ---------- */
+/* ---------- styles ---------- */
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -186,17 +197,30 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   center: {
-    flex: 1,
-    justifyContent: "center",
+    flex: 1, justifyContent: "center", alignItems: "center",
+  },
+  topBar: {
+    marginTop: 8,
+    width: "90%",
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
   },
   counter: {
-    marginTop: 16,
     fontSize: 16,
     color: "#64748b",
   },
+  ctxToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  ctxLabel: {
+    color: "#334155",
+    marginRight: 6,
+  },
   cardWrap: {
-    marginTop: 40,
+    marginTop: 24,
   },
   card: {
     position: "absolute",
@@ -220,6 +244,27 @@ const styles = StyleSheet.create({
     fontSize: 22,
     textAlign: "center",
     color: "#0f172a",
+    paddingHorizontal: 6,
+  },
+  contextBox: {
+    marginTop: 14,
+    padding: 10,
+    borderRadius: 10,
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    width: "92%",
+  },
+  excerpt: {
+    fontSize: 14,
+    color: "#334155",
+    textAlign: "center",
+  },
+  pageNote: {
+    marginTop: 6,
+    fontSize: 12,
+    color: "#475569",
+    textAlign: "center",
   },
   buttons: {
     position: "absolute",

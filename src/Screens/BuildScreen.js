@@ -1,8 +1,13 @@
 // src/Screens/BuildScreen.js
 //
 // Receives { file, testN, cardsWanted } from <UploadScreen>,
-// uploads the PDF, waits for the deck to finish, then jumps to Picker.
+// uploads the PDF to Django, waits for the deck to finish, then
+// redirects to <Picker>.
 //
+// ◼  Added verbose logging so you can see *exactly* what gets posted
+// ◼  Always sends cards_wanted (defaults to 12 if slider unset)
+// ◼  Better error messages (shows HTTP status AND body)
+
 import React, { useEffect, useState } from "react";
 import {
   View,
@@ -14,62 +19,68 @@ import {
 import { API_BASE } from "../config";
 
 export default function BuildScreen({ route, navigation }) {
-  const { file, testN, cardsWanted } = route.params;
+  const { file, testN = 0, cardsWanted = 12 } = route.params;
 
-  const [phase,  setPhase]  = useState("upload"); // upload | build | error
+  /** "upload" → "build" → (error|done) */
+  const [phase,  setPhase]  = useState("upload");
   const [errMsg, setErrMsg] = useState("");
 
   useEffect(() => {
     (async () => {
       try {
-        /* ---------- build multipart body ---------- */
-        const body     = new FormData();
+        /* ─────────────── build multipart body ─────────────── */
+        const fd       = new FormData();
         const filename = file.name ?? "document.pdf";
         const mime     = file.mimeType ?? "application/pdf";
 
         if (Platform.OS === "web") {
-          // need explicit Blob on web
+          // Web requires an explicit Blob
           const blob = await fetch(file.uri).then(r => r.blob());
-          body.append("file", new File([blob], filename, { type: mime }));
+          fd.append("file", new File([blob], filename, { type: mime }));
         } else {
-          body.append("file", { uri: file.uri, name: filename, type: mime });
+          fd.append("file", { uri: file.uri, name: filename, type: mime });
         }
 
-        body.append("deck_name", filename.replace(/\.pdf$/i, ""));
-        if (testN)      body.append("test_chunks", String(testN));
-        if (cardsWanted) body.append("cards_wanted", String(cardsWanted));
+        fd.append("deck_name", filename.replace(/\.pdf$/i, ""));
+        if (Number(testN) > 0) fd.append("test_chunks", String(testN));
+        /* ALWAYS send the slider value (clamped server-side 3–30) */
+        fd.append("cards_wanted", String(cardsWanted || 12));
 
-        /* ---------- POST to Django ---------- */
-        const res = await fetch(
-          `${API_BASE}/api/flashcards/generate/`,
-          { method: "POST", body }
-        );
+        const url = `${API_BASE}/api/flashcards/generate/`;
+        console.log("[BuildScreen] POST", url, {
+          testN, cardsWanted,
+          filename,
+        });
+
+        /* ─────────────── POST to Django ─────────────── */
+        const res = await fetch(url, { method: "POST", body: fd });
 
         if (!res.ok) {
           const text = await res.text();
-          setErrMsg(text || `HTTP ${res.status}`);
+          console.error("[BuildScreen] HTTP error", res.status, text);
+          setErrMsg(`HTTP ${res.status} – ${text.slice(0,150)}`);
           setPhase("error");
           return;
         }
 
-        setPhase("build");                // AI pipeline in progress
-        const json = await res.json();    // blocks until finished
+        setPhase("build");                 // AI pipeline running
+        const json = await res.json();     // waits until pipeline finishes
         console.log("✅ deck built:", json);
 
-        /* ---------- jump to picker ---------- */
+        /* ─────────────── jump to picker ─────────────── */
         navigation.reset({
           index : 0,
           routes: [{ name: "Picker", params: { deckId: json.deck_id } }],
         });
       } catch (err) {
-        console.error(err);
-        setErrMsg(String(err));
+        console.error("❌ network / unexpected error:", err, err?.stack);
+        setErrMsg(err.message ?? String(err));
         setPhase("error");
       }
     })();
   }, []);
 
-  /* ---------- tiny UI ---------- */
+  /* ─────────────── minimal UI ─────────────── */
   if (phase === "error") {
     return (
       <View style={styles.center}>
@@ -79,11 +90,12 @@ export default function BuildScreen({ route, navigation }) {
     );
   }
 
-  const label = phase === "upload" ? "Uploading…" : "Building deck…";
   return (
     <View style={styles.center}>
       <ActivityIndicator size="large" />
-      <Text style={{ marginTop: 16 }}>{label}</Text>
+      <Text style={{ marginTop: 16 }}>
+        {phase === "upload" ? "Uploading…" : "Building deck…"}
+      </Text>
     </View>
   );
 }

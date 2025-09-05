@@ -23,4 +23,9 @@
 
 // Single source of truth for the backend URL.
 // Change the IP when you switch networks.
-export const API_BASE = "http://10.0.0.139:8000";
+
+
+
+// export const API_BASE = "http://10.0.0.139:8000";
+
+export const API_BASE = "http://127.0.0.1:8000";   
