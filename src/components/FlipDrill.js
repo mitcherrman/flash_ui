@@ -3,6 +3,7 @@
    • Re-sizes automatically when the phone/tablet rotates
    • Works on native *and* web
    • Toggle to show/hide source context (excerpt + page)
+   • UC Berkeley colorway + larger, more readable type
 */
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
@@ -20,18 +21,27 @@ import {
 import { API_BASE } from "../config";
 const API_ROOT = `${API_BASE}/api/flashcards`;
 
+// UC Berkeley palette
+const COLORS = {
+  blue: "#003262",      // Berkeley Blue (background / text)
+  gold: "#FDB515",      // California Gold (accents / buttons)
+  white: "#FFFFFF",
+  lightGold: "#FFF6DB",
+  slate: "#E2E8F0",
+};
+
 export default function FlipDrill({ deckId, n = 12 }) {
   /* ---------- live screen size ---------- */
   const { width } = useWindowDimensions();
-  const CARD_W    = width * 0.8;
-  const CARD_H    = CARD_W * 0.6;
+  const CARD_W    = Math.min(width * 0.9, 720);
+  const CARD_H    = CARD_W * 0.62;
 
   /* ---------- state ---------- */
-  const [cards,   setCards]     = useState([]);
-  const [idx,     setIdx]       = useState(0);
-  const [flipped, setFlipped]   = useState(false);
-  const [err,     setErr]       = useState("");
-  const [showCtx, setShowCtx]   = useState(true);   // ← new: context toggle
+  const [cards,   setCards]   = useState([]);
+  const [idx,     setIdx]     = useState(0);
+  const [flipped, setFlipped] = useState(false);
+  const [err,     setErr]     = useState("");
+  const [showCtx, setShowCtx] = useState(true);
 
   /* ---------- refs / anim ---------- */
   const flipAnim = useRef(new Animated.Value(0)).current;
@@ -90,25 +100,25 @@ export default function FlipDrill({ deckId, n = 12 }) {
   const nextCard = () => { setIdx((i) => (i + 1) % cards.length); setFlipped(false); };
   const prevCard = () => { setIdx((i) => (i - 1 + cards.length) % cards.length); setFlipped(false); };
 
-  const ellipsize = (s, limit = 200) => {
+  const ellipsize = (s, limit = 220) => {
     if (!s) return "";
-    const trimmed = s.trim();
-    return trimmed.length > limit ? trimmed.slice(0, limit - 1) + "…" : trimmed;
-  };
+    const t = s.trim();
+    return t.length > limit ? t.slice(0, limit - 1) + "…" : t;
+    };
 
   /* ---------- early / error UI ---------- */
   if (err) {
     return (
-      <SafeAreaView style={styles.center}>
-        <Text style={{color:"red",textAlign:"center"}}>{err}</Text>
+      <SafeAreaView style={[styles.center, { backgroundColor: COLORS.blue }]}>
+        <Text style={{ color: COLORS.gold, fontSize: 18, textAlign: "center" }}>{err}</Text>
       </SafeAreaView>
     );
   }
   if (!cards.length) {
     return (
-      <SafeAreaView style={styles.center}>
-        <ActivityIndicator size="large" />
-        <Text style={{ marginTop: 12 }}>Loading cards…</Text>
+      <SafeAreaView style={[styles.center, { backgroundColor: COLORS.blue }]}>
+        <ActivityIndicator size="large" color={COLORS.gold} />
+        <Text style={{ marginTop: 12, color: COLORS.gold, fontSize: 18 }}>Loading cards…</Text>
       </SafeAreaView>
     );
   }
@@ -124,7 +134,12 @@ export default function FlipDrill({ deckId, n = 12 }) {
 
         <View style={styles.ctxToggle}>
           <Text style={styles.ctxLabel}>Show context</Text>
-          <Switch value={showCtx} onValueChange={setShowCtx} />
+          <Switch
+            value={showCtx}
+            onValueChange={setShowCtx}
+            trackColor={{ false: "#97A6B3", true: COLORS.gold }}
+            thumbColor={COLORS.white}
+          />
         </View>
       </View>
 
@@ -140,10 +155,11 @@ export default function FlipDrill({ deckId, n = 12 }) {
         <Animated.View
           style={[
             styles.card,
+            styles.cardFront,
             { transform: [{ perspective: 1000 }, { rotateY: frontRot }] },
           ]}
         >
-          <Text style={styles.text}>{card.front}</Text>
+          <Text style={styles.cardText}>{card.front}</Text>
         </Animated.View>
 
         {/* back */}
@@ -154,13 +170,13 @@ export default function FlipDrill({ deckId, n = 12 }) {
             { transform: [{ perspective: 1000 }, { rotateY: backRot }] },
           ]}
         >
-          <Text style={styles.text}>{card.back}</Text>
+          <Text style={styles.cardText}>{card.back}</Text>
 
           {/* context block (excerpt + page) */}
           {showCtx && (card.excerpt || card.page != null) && (
             <View style={styles.contextBox}>
               {!!card.excerpt && (
-                <Text style={styles.excerpt}>"{ellipsize(card.excerpt, 220)}"</Text>
+                <Text style={styles.excerpt}>"{ellipsize(card.excerpt)}"</Text>
               )}
               {card.page != null && (
                 <Text style={styles.pageNote}>p. {card.page}</Text>
@@ -193,93 +209,110 @@ export default function FlipDrill({ deckId, n = 12 }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f9fafb",
+    backgroundColor: COLORS.blue,
     alignItems: "center",
   },
   center: {
     flex: 1, justifyContent: "center", alignItems: "center",
   },
   topBar: {
-    marginTop: 8,
-    width: "90%",
+    marginTop: 12,
+    width: "92%",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
   counter: {
-    fontSize: 16,
-    color: "#64748b",
+    fontSize: 20,
+    fontWeight: "700",
+    color: COLORS.gold,
   },
   ctxToggle: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 10,
   },
   ctxLabel: {
-    color: "#334155",
+    color: COLORS.gold,
+    fontSize: 16,
     marginRight: 6,
+    fontWeight: "600",
   },
   cardWrap: {
-    marginTop: 24,
+    marginTop: 28,
   },
   card: {
     position: "absolute",
     width: "100%",
     height: "100%",
-    borderRadius: 16,
-    backgroundColor: "#ffffff",
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
     backfaceVisibility: "hidden",
     shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    paddingHorizontal: 12,
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    paddingHorizontal: 16,
+  },
+  cardFront: {
+    backgroundColor: COLORS.white,
+    borderWidth: 2,
+    borderColor: COLORS.gold,
   },
   cardBack: {
-    backgroundColor: "#e0f2fe",
+    backgroundColor: COLORS.lightGold,
+    borderWidth: 2,
+    borderColor: COLORS.gold,
   },
-  text: {
-    fontSize: 22,
+  cardText: {
+    fontSize: 28,           // significantly larger
+    lineHeight: 34,
     textAlign: "center",
-    color: "#0f172a",
-    paddingHorizontal: 6,
+    color: COLORS.blue,
+    fontWeight: "700",
   },
   contextBox: {
-    marginTop: 14,
-    padding: 10,
-    borderRadius: 10,
-    backgroundColor: "#ffffff",
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    width: "92%",
+    marginTop: 16,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: COLORS.white,
+    borderWidth: 2,
+    borderColor: COLORS.gold,
+    width: "94%",
   },
   excerpt: {
-    fontSize: 14,
-    color: "#334155",
+    fontSize: 16,
+    lineHeight: 22,
+    color: COLORS.blue,
     textAlign: "center",
+    fontStyle: "italic",
   },
   pageNote: {
-    marginTop: 6,
-    fontSize: 12,
-    color: "#475569",
+    marginTop: 8,
+    fontSize: 16,
+    color: COLORS.blue,
     textAlign: "center",
+    fontWeight: "700",
   },
   buttons: {
     position: "absolute",
-    bottom: 40,
+    bottom: 44,
     flexDirection: "row",
     gap: 20,
   },
   btn: {
-    backgroundColor: "#0ea5e9",
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
+    backgroundColor: COLORS.gold,
+    paddingHorizontal: 28,
+    paddingVertical: 14,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: COLORS.white,
   },
   btnTxt: {
-    color: "white",
-    fontWeight: "600",
+    color: COLORS.blue,
+    fontWeight: "800",
+    fontSize: 18,
+    letterSpacing: 0.3,
   },
 });
