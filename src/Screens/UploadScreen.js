@@ -1,49 +1,28 @@
 // src/Screens/UploadScreen.js
-// 1) Let the user pick a local PDF
-// 2) Collect test-chunks (optional) + cards wanted (slider)
-// 3) Navigate to <BuildScreen>
-// UC Berkeley colorway + larger fonts
+// ——————————————————————————————————————————————
+// 1) Let the user pick a local PDF.
+// 2) Background-inspect: pages & word count while on this screen.
+// 3) Navigate to <BuildScreen> with { file, testN, cardsWanted }.
+// ——————————————————————————————————————————————
 
-import React, { useState } from "react";
-import {
-  View,
-  Text,
-  Alert,
-  TextInput,
-  Pressable,
-  StyleSheet,
-} from "react-native";
+import React, { useEffect, useState } from "react";
+import { View, Text, Button, Alert, TextInput, Platform, ActivityIndicator } from "react-native";
 import Slider from "@react-native-community/slider";
 import * as DocumentPicker from "expo-document-picker";
-
-const COLORS = {
-  blue: "#003262",
-  gold: "#FDB515",
-  white: "#FFFFFF",
-  pale: "#FFF6DB",
-  slate: "#CBD5E1",
-};
-
-function PrimaryButton({ title, onPress, disabled }) {
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      style={[
-        styles.btn,
-        disabled && { opacity: 0.6 },
-      ]}
-    >
-      <Text style={styles.btnTxt}>{title}</Text>
-    </Pressable>
-  );
-}
+import { API_BASE } from "../config";
 
 export default function UploadScreen({ navigation }) {
-  const [file, setFile]               = useState(null);   // { uri, name, … }
-  const [testN, setTestN]             = useState("");     // 0–5 demo
-  const [cardsWanted, setCardsWanted] = useState(12);     // 3–30
+  /* ---------------- state ---------------- */
+  const [file, setFile] = useState(null);          // { uri, name, mimeType, … }
+  const [testN, setTestN] = useState("");          // quick random-chunk demo
+  const [cardsWanted, setCardsWanted] = useState(12);
 
+  // background-inspection state
+  const [stats, setStats] = useState(null);        // { pages, words, ... }
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [statsErr, setStatsErr] = useState("");
+
+  /* -------------- pick PDF --------------- */
   async function pick() {
     try {
       const res = await DocumentPicker.getDocumentAsync({
@@ -57,108 +36,149 @@ export default function UploadScreen({ navigation }) {
     }
   }
 
+  /* -------------- background inspect ------ */
+  useEffect(() => {
+    if (!file) return;
+
+    (async () => {
+      try {
+        setStats(null);
+        setStatsErr("");
+        setStatsLoading(true);
+
+        const fd = new FormData();
+        const filename = file.name ?? "document.pdf";
+        const mime = file.mimeType ?? "application/pdf";
+
+        if (Platform.OS === "web") {
+          const blob = await fetch(file.uri).then((r) => r.blob());
+          fd.append("file", new File([blob], filename, { type: mime }));
+        } else {
+          fd.append("file", { uri: file.uri, name: filename, type: mime });
+        }
+
+        const url = `${API_BASE}/api/flashcards/inspect/`;
+        const res = await fetch(url, { method: "POST", body: fd });
+
+        if (!res.ok) {
+          const t = await res.text();
+          throw new Error(`HTTP ${res.status} – ${t.slice(0, 160)}`);
+        }
+
+        const json = await res.json();
+        setStats(json);
+      } catch (e) {
+        console.error("[inspect] error", e);
+        setStatsErr(String(e.message ?? e));
+      } finally {
+        setStatsLoading(false);
+      }
+    })();
+  }, [file]);
+
+  /* -------------- go next ---------------- */
   function next() {
     if (!file) return Alert.alert("Choose a PDF first");
     const n = parseInt(testN, 10) || 0;
-    navigation.navigate("Build", { file, testN: n, cardsWanted });
+    navigation.navigate("Build", {
+      file,
+      testN: n,
+      cardsWanted,
+    });
   }
 
+  /* -------------- UI --------------------- */
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Build Flashcards</Text>
-
-      <PrimaryButton title="Choose PDF" onPress={pick} />
+    <View style={styles.center}>
+      <Button title="Choose PDF" onPress={pick} />
 
       {file && <Text style={styles.fileName}>{file.name}</Text>}
 
+      {/* background inspection panel */}
+      {file && (
+        <View style={styles.statsBox}>
+          {statsLoading && (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <ActivityIndicator />
+              <Text>Analyzing pages & word count…</Text>
+            </View>
+          )}
+
+          {!statsLoading && stats && stats.ok && (
+            <>
+              <Text style={styles.statsLine}>
+                Pages: <Text style={styles.statsStrong}>{stats.pages}</Text>
+              </Text>
+              <Text style={styles.statsLine}>
+                Words: <Text style={styles.statsStrong}>{stats.words}</Text>
+                {stats.avg_words_per_page ? (
+                  <Text>  (avg {stats.avg_words_per_page}/page)</Text>
+                ) : null}
+              </Text>
+            </>
+          )}
+
+          {!statsLoading && statsErr ? (
+            <Text style={{ color: "red" }}>{statsErr}</Text>
+          ) : null}
+        </View>
+      )}
+
       {file && (
         <>
-          <Text style={styles.sectionLabel}>Quick test (0–5 chunks, optional)</Text>
+          {/* optional test chunks */}
           <TextInput
             value={testN}
             onChangeText={setTestN}
-            placeholder="0"
+            placeholder="Test chunks (0-5)"
             keyboardType="number-pad"
             maxLength={1}
             style={styles.input}
-            placeholderTextColor="#6B7280"
           />
 
-          <Text style={[styles.sectionLabel, { marginTop: 18 }]}>
-            Cards to generate: <Text style={{ fontWeight: "900" }}>{cardsWanted}</Text>
-          </Text>
-          <Slider
-            minimumValue={3}
-            maximumValue={30}
-            step={1}
-            value={cardsWanted}
-            onValueChange={setCardsWanted}
-            style={{ width: 260, height: 40 }}
-            minimumTrackTintColor={COLORS.gold}
-            maximumTrackTintColor="#8FA3B7"
-            thumbTintColor={COLORS.white}
-          />
+          {/* slider for #cards */}
+          <View style={{ width: 260, marginVertical: 20 }}>
+            <Text>Cards to generate: {cardsWanted}</Text>
+            <Slider
+              minimumValue={3}
+              maximumValue={30}
+              step={1}
+              value={cardsWanted}
+              onValueChange={setCardsWanted}
+            />
+          </View>
 
-          <PrimaryButton title="Upload & Build" onPress={next} />
+          <Button title="Upload & Build" onPress={next} />
         </>
       )}
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.blue,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 20,
-  },
-  title: {
-    color: COLORS.gold,
-    fontSize: 28,
-    fontWeight: "900",
-    marginBottom: 18,
-    letterSpacing: 0.5,
-  },
-  fileName: {
-    marginVertical: 10,
-    fontSize: 18,
-    color: COLORS.white,
-    textAlign: "center",
-  },
-  sectionLabel: {
-    color: COLORS.gold,
-    fontSize: 16,
-    fontWeight: "700",
-    marginTop: 10,
-  },
+/* ---------- styles ---------- */
+const styles = {
+  center:   { flex: 1, justifyContent: "center", alignItems: "center" },
+  fileName: { marginVertical: 8, fontSize: 16 },
   input: {
     width: 120,
-    height: 46,
-    backgroundColor: COLORS.white,
-    borderWidth: 2,
-    borderColor: COLORS.gold,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    marginTop: 8,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 6,
+    padding: 6,
+    marginVertical: 8,
     textAlign: "center",
-    fontSize: 18,
-    fontWeight: "700",
   },
-  btn: {
-    backgroundColor: COLORS.gold,
-    paddingHorizontal: 28,
-    paddingVertical: 14,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: COLORS.white,
-    marginTop: 14,
+  statsBox: {
+    marginTop: 10,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    backgroundColor: "#f8fafc",
+    minWidth: 260,
+    alignItems: "center",
+    gap: 2,
   },
-  btnTxt: {
-    color: COLORS.blue,
-    fontWeight: "800",
-    fontSize: 18,
-    letterSpacing: 0.3,
-  },
-});
+  statsLine: { fontSize: 14, color: "#334155" },
+  statsStrong: { fontWeight: "700", color: "#0f172a" },
+};
