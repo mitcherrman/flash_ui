@@ -24,12 +24,14 @@ import { API_BASE } from "../config";
 const API_ROOT = `${API_BASE}/api/flashcards`;
 
 export default function FlipDrill({
-  deckId,
-  n = 30,                  // number of cards, or "all"
-  order = "random",         // "random" | "doc"
-  startOrdinal = null,      // jump to this # if provided (when order="doc")
+  deckId={deckId},
+  n = "all",                  // number of cards, or "all"
+  order = {order},         // "random" | "doc"
+  startOrdinal = {startOrdinal},      // jump to this # if provided (when order="doc")
   onOpenTOC,                // optional () => void to open Table of Contents
-}) {
+}) 
+
+{
   const { width } = useWindowDimensions();
   const CARD_W = Math.min(900, width * 0.9);
   const CARD_H = CARD_W * 0.6;
