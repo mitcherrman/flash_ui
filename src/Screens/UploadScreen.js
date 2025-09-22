@@ -2,13 +2,13 @@
 // ——————————————————————————————————————————————
 // 1) Pick a PDF
 // 2) Background-call /analyze to get stats + recommendation
-// 3) Let the user choose #cards (+ choose “coverage” strategy)
+// 3) Let the user choose #cards (and optionally edit per-section counts)
 // 4) Navigate to <BuildScreen> with chosen options
 // ——————————————————————————————————————————————
 import React, { useEffect, useMemo, useState } from "react";
 import {
   View, Text, Button, Alert, ActivityIndicator,
-  Platform, ScrollView, Pressable,
+  Platform, ScrollView, Pressable, TextInput,
 } from "react-native";
 import Slider from "@react-native-community/slider";
 import * as DocumentPicker from "expo-document-picker";
@@ -16,13 +16,17 @@ import { API_BASE } from "../config";
 
 export default function UploadScreen({ navigation }) {
   const [file, setFile]               = useState(null);   // { uri, name, mimeType, ... }
-  const [cardsWanted, setCardsWanted] = useState(30);
+  const [cardsWanted, setCardsWanted] = useState(12);
   const [coverageMode, setCoverage]   = useState("even"); // "even" | "section"
 
   // analysis coming from Django
   const [analyzing, setAnalyzing] = useState(false);
   const [stats, setStats]         = useState(null);
   const [err, setErr]             = useState("");
+
+  // editable per-section allocation
+  const [allocs, setAllocs]       = useState([]);        // [{title, page_start, page_end, share, cards}]
+  const [allocDirty, setAllocDirty]= useState(false);     // has user edited counts?
 
   async function pick() {
     try {
@@ -35,6 +39,8 @@ export default function UploadScreen({ navigation }) {
       setFile(f);
       setStats(null);
       setErr("");
+      setAllocs([]);
+      setAllocDirty(false);
       analyzeFile(f).catch(() => {});
     } catch (e) {
       console.error(e);
@@ -73,20 +79,73 @@ export default function UploadScreen({ navigation }) {
     }
   }
 
+  // When stats arrive, seed allocations proportionally to shares
+  useEffect(() => {
+    if (!stats?.per_section_allocation) return;
+    const total = cardsWanted || stats.recommended_cards || 12;
+    const seeded = stats.per_section_allocation.map(s => ({
+      title: s.title,
+      page_start: s.page_start,
+      page_end: s.page_end,
+      share: s.share ?? (stats.words ? (s.words / stats.words) : 0),
+      cards: Math.max(0, Math.round((s.cards ?? 0) || ((s.share ?? 0) * total))),
+    }));
+    setAllocs(seeded);
+    setAllocDirty(false);
+  }, [stats]);
+
+  // If the slider changes and user hasn't manually edited, rescale allocs
+  useEffect(() => {
+    if (!allocs.length || allocDirty) return;
+    const tot = cardsWanted || 0;
+    const shares = allocs.map(a => a.share ?? 0);
+    const sumShare = shares.reduce((s, x) => s + x, 0) || 1;
+    const next = allocs.map((a, i) => ({
+      ...a,
+      cards: Math.max(0, Math.round((shares[i] / sumShare) * tot))
+    }));
+    setAllocs(next);
+  }, [cardsWanted]);
+
+  function setSectionCount(index, val) {
+    const n = Math.max(0, Math.min(30, parseInt(val || "0", 10)));
+    const next = allocs.map((a, i) => (i === index ? { ...a, cards: n } : a));
+    setAllocs(next);
+    setAllocDirty(true);
+    const total = next.reduce((s, a) => s + (a.cards || 0), 0);
+    setCardsWanted(total);
+  }
+
+  function bump(index, delta) {
+    setSectionCount(index, (allocs[index]?.cards || 0) + delta);
+  }
+
+  function resetAllocations() {
+    setAllocDirty(false);
+    setCardsWanted(prev => prev); // trigger rescale in useEffect
+  }
+
   function next() {
     if (!file) return Alert.alert("Choose a PDF first");
+    const total = Math.max(3, Math.min(30, cardsWanted || 12));
     navigation.navigate("Build", {
       file,
-      cardsWanted,
-      coverage: coverageMode, // "even" or "section"
+      cardsWanted: total,
+      coverage: coverageMode, // not used by server when explicit allocations exist
+      allocations: allocs.map(a => ({
+        title: a.title,
+        page_start: a.page_start,
+        page_end: a.page_end,
+        cards: Math.max(0, Math.min(30, a.cards || 0)),
+      })),
     });
   }
 
-  // coverage helpers
+  // coverage helpers (rough preview)
   const pages          = stats?.pages || 0;
   const sectionsCount  = stats?.per_section_allocation?.length || 0;
-  const coveragePages  = pages ? Math.min(1, cardsWanted / pages) : 0;
-  const coverageSecs   = sectionsCount ? Math.min(1, cardsWanted / sectionsCount) : 0;
+  const coveragePages  = pages ? Math.min(1, (cardsWanted || 0) / pages) : 0;
+  const coverageSecs   = sectionsCount ? Math.min(1, (cardsWanted || 0) / sectionsCount) : 0;
 
   const recText = useMemo(() => {
     if (!stats) return null;
@@ -122,7 +181,6 @@ export default function UploadScreen({ navigation }) {
         <View style={{ width: "90%", marginTop: 16 }}>
           <Text style={styles.filename}>{file.name}</Text>
 
-          {/* Analysis status / summary */}
           {analyzing && (
             <View style={styles.panel}>
               <ActivityIndicator />
@@ -144,7 +202,6 @@ export default function UploadScreen({ navigation }) {
             </View>
           )}
 
-          {/* coverage mode chips */}
           <View style={{ marginTop: 10, flexDirection: "row", alignItems: "center" }}>
             <Text style={{ color: "#cbd5e1", marginRight: 10 }}>Coverage:</Text>
             <Chip
@@ -159,7 +216,6 @@ export default function UploadScreen({ navigation }) {
             />
           </View>
 
-          {/* slider for #cards */}
           <View style={{ width: "100%", marginVertical: 18 }}>
             <Text style={styles.sliderLabel}>
               Cards to generate: <Text style={{ color: "#93c5fd", fontWeight: "700" }}>{cardsWanted}</Text>
@@ -184,19 +240,29 @@ export default function UploadScreen({ navigation }) {
             )}
           </View>
 
-          {/* Per-section plan (scaled to slider) */}
-          {stats?.per_section_allocation?.length > 0 && (
+          {allocs.length > 0 && (
             <View style={styles.panel}>
-              <Text style={styles.panelHdr}>Per-section plan (at {cardsWanted}):</Text>
-              {stats.per_section_allocation.map((s, i) => {
-                const totalRec = stats.recommended_cards || cardsWanted || 1;
-                const scaled = Math.max(0, Math.round((s.cards / Math.max(1, totalRec)) * cardsWanted));
-                return (
-                  <Text key={i} style={styles.panelText}>
-                    • {s.title} — p.{s.page_start}–{s.page_end} — {scaled} cards
+              <View style={{flexDirection:"row", justifyContent:"space-between", alignItems:"center"}}>
+                <Text style={styles.panelHdr}>Per-section plan (total {cardsWanted}):</Text>
+                <Button title="Reset to recommendation" onPress={resetAllocations} />
+              </View>
+              {allocs.map((a, i) => (
+                <View key={`${a.title}-${i}`} style={styles.allocRow}>
+                  <Text style={styles.allocTitle}>
+                    • {a.title} — p.{a.page_start}–{a.page_end}
                   </Text>
-                );
-              })}
+                  <View style={styles.allocControls}>
+                    <Button title="–" onPress={() => bump(i, -1)} />
+                    <TextInput
+                      style={styles.allocInput}
+                      keyboardType="number-pad"
+                      value={String(a.cards ?? 0)}
+                      onChangeText={(t) => setSectionCount(i, t)}
+                    />
+                    <Button title="+" onPress={() => bump(i, +1)} />
+                  </View>
+                </View>
+              ))}
             </View>
           )}
 
@@ -229,4 +295,21 @@ const styles = {
 
   sliderLabel: { color: "#e5e7eb", marginBottom: 8 },
   coverage: { color: "#a7f3d0", marginTop: 2 },
+
+  allocRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: "#1f2937",
+  },
+  allocTitle: { color: "#cbd5e1", flexShrink: 1, paddingRight: 10 },
+  allocControls: { flexDirection: "row", alignItems: "center", gap: 6 },
+  allocInput: {
+    width: 48, textAlign: "center",
+    borderWidth: 1, borderColor: "#334155",
+    color: "#e5e7eb", backgroundColor: "#0b1226",
+    borderRadius: 6, paddingVertical: 4, marginHorizontal: 6,
+  },
 };

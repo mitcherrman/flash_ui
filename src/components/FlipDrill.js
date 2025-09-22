@@ -3,6 +3,7 @@
    • UC-Berkeley palette, larger type
    • Toggle to show/hide excerpt
    • Shows source info: Section, Page, Context, Excerpt
+   • NEW: TOC button, ordinal badge, jump-to-ordinal, ordered fetching
 */
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
@@ -16,11 +17,19 @@ import {
   PanResponder,
   ActivityIndicator,
   Switch,
+  TouchableOpacity,
 } from "react-native";
 import { API_BASE } from "../config";
+
 const API_ROOT = `${API_BASE}/api/flashcards`;
 
-export default function FlipDrill({ deckId, n = 30 }) {
+export default function FlipDrill({
+  deckId,
+  n = 30,                  // number of cards, or "all"
+  order = "random",         // "random" | "doc"
+  startOrdinal = null,      // jump to this # if provided (when order="doc")
+  onOpenTOC,                // optional () => void to open Table of Contents
+}) {
   const { width } = useWindowDimensions();
   const CARD_W = Math.min(900, width * 0.9);
   const CARD_H = CARD_W * 0.6;
@@ -34,6 +43,7 @@ export default function FlipDrill({ deckId, n = 30 }) {
   const flipAnim = useRef(new Animated.Value(0)).current;
   const panX = useRef(new Animated.Value(0)).current;
 
+  // flip animation
   useEffect(() => {
     Animated.timing(flipAnim, {
       toValue: flipped ? 180 : 0,
@@ -42,27 +52,44 @@ export default function FlipDrill({ deckId, n = 30 }) {
     }).start();
   }, [flipped]);
 
-  const frontRot = flipAnim.interpolate({ inputRange: [0, 180], outputRange: ["0deg", "180deg"] });
-  const backRot  = flipAnim.interpolate({ inputRange: [0, 180], outputRange: ["180deg", "360deg"] });
+  const frontRot = flipAnim.interpolate({
+    inputRange: [0, 180],
+    outputRange: ["0deg", "180deg"],
+  });
+  const backRot = flipAnim.interpolate({
+    inputRange: [0, 180],
+    outputRange: ["180deg", "360deg"],
+  });
 
+  // load cards
   useEffect(() => {
     (async () => {
       try {
-        const url = `${API_ROOT}/hand/?deck_id=${deckId}&n=${n}`;
+        const ordParam = order === "doc" ? "&order=doc" : "";
+        const nParam = n === "all" ? "all" : n;
+        const url = `${API_ROOT}/hand/?deck_id=${deckId}&n=${nParam}${ordParam}`;
         const r = await fetch(url);
         if (!r.ok) {
           const txt = await r.text();
           throw new Error(`HTTP ${r.status} • ${txt.slice(0, 140)}`);
         }
         const data = await r.json();
-        setCards(data);
-        setIdx(0);
+        setCards(Array.isArray(data) ? data : []);
+        // Jump to a specific ordinal if provided, otherwise first card
+        if (startOrdinal && Array.isArray(data)) {
+          const i = data.findIndex((c) => c.ordinal === startOrdinal);
+          setIdx(i >= 0 ? i : 0);
+        } else {
+          setIdx(0);
+        }
+        setFlipped(false);
       } catch (e) {
         setErr(String(e));
       }
     })();
-  }, [deckId, n]);
+  }, [deckId, n, order, startOrdinal]);
 
+  // swipe navigation
   const responder = useMemo(
     () =>
       PanResponder.create({
@@ -77,19 +104,29 @@ export default function FlipDrill({ deckId, n = 30 }) {
     [cards.length]
   );
 
-  const nextCard = () => { setIdx((i) => (i + 1) % cards.length); setFlipped(false); };
-  const prevCard = () => { setIdx((i) => (i - 1 + cards.length) % cards.length); setFlipped(false); };
+  const nextCard = () => {
+    if (!cards.length) return;
+    setIdx((i) => (i + 1) % cards.length);
+    setFlipped(false);
+  };
+  const prevCard = () => {
+    if (!cards.length) return;
+    setIdx((i) => (i - 1 + cards.length) % cards.length);
+    setFlipped(false);
+  };
 
   const ellipsize = (s, limit = 260) => {
     if (!s) return "";
     const t = String(s).trim();
     return t.length > limit ? t.slice(0, limit - 1) + "…" : t;
-    };
+  };
 
   if (err) {
     return (
       <SafeAreaView style={styles.center}>
-        <Text style={{ color: "#FDB515", textAlign: "center", fontSize: 18 }}>{err}</Text>
+        <Text style={{ color: "#FDB515", textAlign: "center", fontSize: 18 }}>
+          {err}
+        </Text>
       </SafeAreaView>
     );
   }
@@ -97,14 +134,15 @@ export default function FlipDrill({ deckId, n = 30 }) {
     return (
       <SafeAreaView style={styles.center}>
         <ActivityIndicator size="large" color="#FDB515" />
-        <Text style={{ marginTop: 12, color: "#E6ECF0", fontSize: 18 }}>Loading cards…</Text>
+        <Text style={{ marginTop: 12, color: "#E6ECF0", fontSize: 18 }}>
+          Loading cards…
+        </Text>
       </SafeAreaView>
     );
   }
 
   const card = cards[idx] || {};
-  const sectionName =
-    card.section?.title || card.section || ""; // support either shape
+  const sectionName = card.section?.title || card.section || ""; // supports string or object
   const pageLabel =
     typeof card.page === "number" ? `p. ${card.page}` : "";
   const contextTag = card.context || "";
@@ -113,10 +151,25 @@ export default function FlipDrill({ deckId, n = 30 }) {
     <SafeAreaView style={styles.container}>
       {/* top bar */}
       <View style={styles.topBar}>
-        <Text style={styles.counter}>Card {idx + 1}/{cards.length}</Text>
-        <View style={styles.ctxToggle}>
-          <Text style={styles.ctxLabel}>Show context</Text>
-          <Switch value={showCtx} onValueChange={setShowCtx} thumbColor="#FDB515" trackColor={{ true: "#FFCD00" }} />
+        <Text style={styles.counter}>
+          Card {idx + 1}/{cards.length}
+        </Text>
+
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          {onOpenTOC && (
+            <TouchableOpacity onPress={onOpenTOC} style={styles.tocBtn}>
+              <Text style={styles.tocTxt}>TOC</Text>
+            </TouchableOpacity>
+          )}
+          <View style={styles.ctxToggle}>
+            <Text style={styles.ctxLabel}>Show context</Text>
+            <Switch
+              value={showCtx}
+              onValueChange={setShowCtx}
+              thumbColor="#FDB515"
+              trackColor={{ true: "#FFCD00" }}
+            />
+          </View>
         </View>
       </View>
 
@@ -129,6 +182,11 @@ export default function FlipDrill({ deckId, n = 30 }) {
           { transform: [{ translateX: panX }] },
         ]}
       >
+        {/* ordinal badge */}
+        <View style={styles.badge}>
+          <Text style={styles.badgeTxt}>#{card.ordinal ?? "—"}</Text>
+        </View>
+
         {/* front */}
         <Animated.View
           style={[
@@ -151,7 +209,10 @@ export default function FlipDrill({ deckId, n = 30 }) {
         </Animated.View>
 
         {/* tap to flip */}
-        <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setFlipped((f) => !f)} />
+        <Pressable
+          style={StyleSheet.absoluteFillObject}
+          onPress={() => setFlipped((f) => !f)}
+        />
       </Animated.View>
 
       {/* source info panel (always visible; excerpt obeys toggle) */}
@@ -164,7 +225,9 @@ export default function FlipDrill({ deckId, n = 30 }) {
         <Text style={styles.infoLine}>
           <Text style={styles.infoKey}>Page: </Text>
           <Text style={styles.infoVal}>{pageLabel || "—"}</Text>
-          {!!contextTag && <Text style={styles.infoVal}>   •   {contextTag}</Text>}
+          {!!contextTag && (
+            <Text style={styles.infoVal}>   •   {contextTag}</Text>
+          )}
         </Text>
 
         {showCtx && !!card.excerpt && (
@@ -192,7 +255,12 @@ const styles = StyleSheet.create({
     backgroundColor: "#003262", // Berkeley Blue
     alignItems: "center",
   },
-  center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#003262" },
+  center: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#003262",
+  },
   topBar: {
     marginTop: 10,
     width: "92%",
@@ -203,7 +271,23 @@ const styles = StyleSheet.create({
   counter: { fontSize: 20, color: "#E6ECF0", fontWeight: "700" },
   ctxToggle: { flexDirection: "row", alignItems: "center", gap: 8 },
   ctxLabel: { color: "#E6ECF0", marginRight: 8, fontSize: 16 },
+
+  tocBtn: { backgroundColor: "#0ea5e9", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10 },
+  tocTxt: { color: "white", fontWeight: "800" },
+
   cardWrap: { marginTop: 20 },
+  badge: {
+    position: "absolute",
+    top: -10,
+    left: 10,
+    backgroundColor: "#0ea5e9",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    zIndex: 10,
+  },
+  badgeTxt: { color: "white", fontWeight: "800" },
+
   card: {
     position: "absolute",
     width: "100%",
