@@ -3,7 +3,7 @@
    • UC-Berkeley palette, larger type
    • Toggle to show/hide excerpt
    • Shows source info: Section, Page, Context, Excerpt
-   • NEW: TOC button, ordinal badge, jump-to-ordinal, ordered fetching
+   • TOC button, ordinal badge, jump-to-ordinal (keeps original order)
 */
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
@@ -22,16 +22,15 @@ import {
 import { API_BASE } from "../config";
 
 const API_ROOT = `${API_BASE}/api/flashcards`;
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 export default function FlipDrill({
-  deckId={deckId},
-  n = "all",                  // number of cards, or "all"
-  order = {order},         // "random" | "doc"
-  startOrdinal = {startOrdinal},      // jump to this # if provided (when order="doc")
-  onOpenTOC,                // optional () => void to open Table of Contents
-}) 
-
-{
+  deckId,
+  n = "all",           // number of cards, or "all"
+  order = "random",     // "random" | "doc"
+  startOrdinal,         // 1-based when order="doc"
+  onOpenTOC,
+}) {
   const { width } = useWindowDimensions();
   const CARD_W = Math.min(900, width * 0.9);
   const CARD_H = CARD_W * 0.6;
@@ -40,12 +39,11 @@ export default function FlipDrill({
   const [idx, setIdx] = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [err, setErr] = useState("");
-  const [showCtx, setShowCtx] = useState(true); // show excerpt toggle
+  const [showCtx, setShowCtx] = useState(true);
 
   const flipAnim = useRef(new Animated.Value(0)).current;
   const panX = useRef(new Animated.Value(0)).current;
 
-  // flip animation
   useEffect(() => {
     Animated.timing(flipAnim, {
       toValue: flipped ? 180 : 0,
@@ -54,44 +52,49 @@ export default function FlipDrill({
     }).start();
   }, [flipped]);
 
-  const frontRot = flipAnim.interpolate({
-    inputRange: [0, 180],
-    outputRange: ["0deg", "180deg"],
-  });
-  const backRot = flipAnim.interpolate({
-    inputRange: [0, 180],
-    outputRange: ["180deg", "360deg"],
-  });
+  const frontRot = flipAnim.interpolate({ inputRange: [0, 180], outputRange: ["0deg", "180deg"] });
+  const backRot  = flipAnim.interpolate({ inputRange: [0, 180], outputRange: ["180deg", "360deg"] });
 
-  // load cards
+  // Load cards; KEEP original doc order. Open at startOrdinal client-side.
   useEffect(() => {
+    let alive = true;
     (async () => {
       try {
-        const ordParam = order === "doc" ? "&order=doc" : "";
-        const nParam = n === "all" ? "all" : n;
-        const url = `${API_ROOT}/hand/?deck_id=${deckId}&n=${nParam}${ordParam}`;
+        const params = new URLSearchParams();
+        params.set("deck_id", String(deckId));
+        params.set("n", typeof n === "string" ? n : String(n));
+        if (order) params.set("order", order);
+        // IMPORTANT: do NOT send start_ordinal; we keep order and jump locally.
+
+        const url = `${API_ROOT}/hand/?${params.toString()}`;
         const r = await fetch(url);
         if (!r.ok) {
           const txt = await r.text();
-          throw new Error(`HTTP ${r.status} • ${txt.slice(0, 140)}`);
+          throw new Error(`HTTP ${r.status} • ${txt.slice(0, 160)}`);
         }
+
         const data = await r.json();
+        if (!alive) return;
+
         setCards(Array.isArray(data) ? data : []);
-        // Jump to a specific ordinal if provided, otherwise first card
-        if (startOrdinal && Array.isArray(data)) {
-          const i = data.findIndex((c) => c.ordinal === startOrdinal);
-          setIdx(i >= 0 ? i : 0);
+        setFlipped(false);
+        setErr("");
+
+        // Open at requested ordinal but preserve order
+        if (order === "doc" && startOrdinal != null && data?.length) {
+          const i = clamp((parseInt(startOrdinal, 10) || 1) - 1, 0, data.length - 1);
+          setIdx(i);
         } else {
           setIdx(0);
         }
-        setFlipped(false);
       } catch (e) {
+        if (!alive) return;
         setErr(String(e));
       }
     })();
+    return () => { alive = false; };
   }, [deckId, n, order, startOrdinal]);
 
-  // swipe navigation
   const responder = useMemo(
     () =>
       PanResponder.create({
@@ -144,9 +147,8 @@ export default function FlipDrill({
   }
 
   const card = cards[idx] || {};
-  const sectionName = card.section?.title || card.section || ""; // supports string or object
-  const pageLabel =
-    typeof card.page === "number" ? `p. ${card.page}` : "";
+  const sectionName = card.section?.title || card.section || "";
+  const pageLabel = typeof card.page === "number" ? `p. ${card.page}` : "";
   const contextTag = card.context || "";
 
   return (
@@ -154,6 +156,7 @@ export default function FlipDrill({
       {/* top bar */}
       <View style={styles.topBar}>
         <Text style={styles.counter}>
+          {/* This counter now reflects the true position in the fixed order */}
           Card {idx + 1}/{cards.length}
         </Text>
 
@@ -211,28 +214,21 @@ export default function FlipDrill({
         </Animated.View>
 
         {/* tap to flip */}
-        <Pressable
-          style={StyleSheet.absoluteFillObject}
-          onPress={() => setFlipped((f) => !f)}
-        />
+        <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setFlipped((f) => !f)} />
       </Animated.View>
 
-      {/* source info panel (always visible; excerpt obeys toggle) */}
+      {/* source info */}
       <View style={[styles.infoPanel, { width: CARD_W }]}>
         <Text style={styles.infoLine}>
           {!!sectionName && <Text style={styles.infoKey}>Section: </Text>}
           <Text style={styles.infoVal}>{sectionName || "—"}</Text>
         </Text>
-
         <Text style={styles.infoLine}>
           <Text style={styles.infoKey}>Page: </Text>
           <Text style={styles.infoVal}>{pageLabel || "—"}</Text>
-          {!!contextTag && (
-            <Text style={styles.infoVal}>   •   {contextTag}</Text>
-          )}
+          {!!contextTag && <Text style={styles.infoVal}>   •   {contextTag}</Text>}
         </Text>
-
-        {showCtx && !!card.excerpt && (
+        {!!showCtx && !!card.excerpt && (
           <Text style={styles.excerpt}>"{ellipsize(card.excerpt, 360)}"</Text>
         )}
       </View>
@@ -254,7 +250,7 @@ export default function FlipDrill({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#003262", // Berkeley Blue
+    backgroundColor: "#003262",
     alignItems: "center",
   },
   center: {
@@ -305,7 +301,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
     paddingHorizontal: 16,
   },
-  cardBack: { backgroundColor: "#FFCD00" }, // California Gold (lighter)
+  cardBack: { backgroundColor: "#FFCD00" },
   textFront: {
     fontSize: 28,
     textAlign: "center",
@@ -347,7 +343,7 @@ const styles = StyleSheet.create({
     gap: 20,
   },
   btn: {
-    backgroundColor: "#FDB515", // Berkeley Gold
+    backgroundColor: "#FDB515",
     paddingHorizontal: 26,
     paddingVertical: 14,
     borderRadius: 10,

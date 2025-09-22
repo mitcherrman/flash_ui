@@ -1,141 +1,137 @@
-// src/Screens/ToCScreen.js
-// Blocky UC-Berkeley themed Table of Contents for a deck.
-// - Fetches all cards in document order
-// - Search filter
-// - Tapping an item returns to the drill at that card's ordinal
-
+// src/Screens/TOCScreen.js
 import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
   TextInput,
   FlatList,
-  TouchableOpacity,
+  Pressable,
   ActivityIndicator,
-  SafeAreaView,
-  StyleSheet,
+  StyleSheet, 
 } from "react-native";
 import { API_BASE } from "../config";
 
-const API_ROOT = `${API_BASE}/api/flashcards`;
 
-export default function ToCScreen({ route, navigation }) {
+
+export default function TOCScreen({ route, navigation }) {
   const { deckId, returnTo = "Game2", mode = "basic" } = route.params || {};
-
-  const [cards, setCards] = useState([]);
+  const [items, setItems] = useState([]);
+  const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
-  const [q, setQ] = useState("");
 
   useEffect(() => {
+    let alive = true;
     (async () => {
       try {
-        const url = `${API_ROOT}/hand/?deck_id=${deckId}&n=all&order=doc`;
-        const r = await fetch(url);
-        if (!r.ok) {
-          const t = await r.text();
-          throw new Error(`HTTP ${r.status} – ${t.slice(0, 150)}`);
-        }
+        setLoading(true);
+        const r = await fetch(`${API_BASE}/api/flashcards/toc/?deck_id=${deckId}`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const data = await r.json();
-        setCards(Array.isArray(data) ? data : []);
+        if (alive) setItems(Array.isArray(data) ? data : []);
       } catch (e) {
-        setErr(String(e));
+        if (alive) setErr(String(e));
       } finally {
-        setLoading(false);
+        if (alive) setLoading(false);
       }
     })();
+    return () => { alive = false; };
   }, [deckId]);
 
   const filtered = useMemo(() => {
-    const needle = (q || "").trim().toLowerCase();
-    if (!needle) return cards;
-    return cards.filter((c) => {
-      const section = (c.section?.title || c.section || "").toLowerCase();
-      const front   = String(c.front || "").toLowerCase();
-      return section.includes(needle) || front.includes(needle);
-    });
-  }, [q, cards]);
+    if (!q.trim()) return items;
+    const needle = q.toLowerCase();
+    return items.filter(it =>
+      (it.section || "").toLowerCase().includes(needle) ||
+      (it.front || "").toLowerCase().includes(needle)
+    );
+  }, [items, q]);
 
-  const gotoCard = (ordinal) => {
-    // Jump back to your drill (FlipDrill) at this ordinal
+  const openAt = (ordinal) => {
+    // Jump into FlipDrill with server-side rotation
     navigation.navigate(returnTo, {
       deckId,
       mode,
+      n: "all",
       order: "doc",
-      startOrdinal: ordinal,
+      startOrdinal: ordinal, // 1-based
     });
   };
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.center}>
-        <ActivityIndicator size="large" color="#FFCD00" />
-        <Text style={styles.muted}>Loading table of contents…</Text>
-      </SafeAreaView>
+      <View style={{ flex:1, backgroundColor:"#003262", justifyContent:"center", alignItems:"center" }}>
+        <ActivityIndicator size="large" color="#FDB515" />
+        <Text style={{ color:"#E6ECF0", marginTop:10 }}>Loading table of contents…</Text>
+      </View>
     );
   }
   if (err) {
     return (
-      <SafeAreaView style={styles.center}>
-        <Text style={[styles.muted, { color: "#FCA5A5" }]}>{err}</Text>
-      </SafeAreaView>
+      <View style={{ flex:1, backgroundColor:"#003262", justifyContent:"center", alignItems:"center", padding:16 }}>
+        <Text style={{ color:"#FDB515" }}>{err}</Text>
+      </View>
     );
   }
 
   const renderItem = ({ item, index }) => {
-    const ordinal = item.ordinal ?? index + 1;
-    const section = item.section?.title || item.section || "";
-    const page    = typeof item.page === "number" ? item.page : null;
-
+    const ordinal = item.ordinal ?? (index + 1); // robust numbering
     return (
-      <TouchableOpacity style={styles.rowWrap} onPress={() => gotoCard(ordinal)}>
-        {/* gold stripe */}
-        <View style={styles.goldStripe} />
-        {/* blocky card */}
-        <View style={styles.rowCard}>
-          <View style={styles.rowTop}>
-            <Text style={styles.ordinal}>#{ordinal}</Text>
-            {page != null && <Text style={styles.page}>p.{page}</Text>}
-          </View>
-          {!!section && <Text style={styles.section}>{section}</Text>}
-          <Text numberOfLines={2} style={styles.front}>
-            {String(item.front || "").trim()}
-          </Text>
+      <Pressable
+        onPress={() => openAt(ordinal)}
+        style={{
+          marginHorizontal: 10,
+          marginVertical: 6,
+          backgroundColor: "#0b1226",
+          borderColor: "#0C4A6E",
+          borderWidth: 1.5,
+          borderRadius: 12,
+          padding: 12,
+        }}
+      >
+        <View style={{ flexDirection:"row", justifyContent:"space-between", alignItems:"center" }}>
+          <Text style={{ color:"#93c5fd", fontWeight:"900" }}>#{ordinal}</Text>
+          {item.page != null && <Text style={{ color:"#93c5fd", fontWeight:"700" }}>p.{item.page}</Text>}
         </View>
-      </TouchableOpacity>
+        {!!item.section && (
+          <Text style={{ color:"#FFCD00", fontWeight:"800", marginTop:6 }}>
+            {item.section}
+          </Text>
+        )}
+        <Text style={{ color:"#E6ECF0", marginTop:4 }}>
+          {item.front}
+        </Text>
+      </Pressable>
     );
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.title}>Table of Contents</Text>
-        <Text style={styles.caption}>Tap to jump to a card</Text>
-      </View>
-
-      {/* Search */}
-      <View style={styles.searchWrap}>
+    <View style={{ flex:1, backgroundColor:"#003262" }}>
+      <View style={{ paddingHorizontal:10, paddingTop:8, paddingBottom:6 }}>
+        <Text style={{ color:"#E6ECF0", fontWeight:"900", fontSize:22 }}>Table of Contents</Text>
+        <Text style={{ color:"#94a3b8", marginTop:2 }}>Tap to jump to a card</Text>
         <TextInput
-          placeholder="Search by section or question…"
-          placeholderTextColor="#93c5fd"
           value={q}
           onChangeText={setQ}
-          style={styles.search}
+          placeholder="Search by section or question…"
+          placeholderTextColor="#7c8799"
+          style={{
+            marginTop:10,
+            borderWidth:1.5, borderColor:"#0C4A6E", borderRadius:10,
+            backgroundColor:"#0b1226", color:"#E6ECF0", paddingHorizontal:12, paddingVertical:10,
+          }}
         />
       </View>
-
-      {/* List */}
       <FlatList
         data={filtered}
-        keyExtractor={(item, idx) => String(item.id ?? item.card_key ?? item.ordinal ?? idx)}
+        keyExtractor={(it, i) => String(it.id ?? `${it.front}-${i}`)}
         renderItem={renderItem}
-        ItemSeparatorComponent={() => <View style={styles.sep} />}
-        contentContainerStyle={{ paddingBottom: 28 }}
+        contentContainerStyle={{ paddingBottom:20 }}
       />
-    </SafeAreaView>
+    </View>
   );
 }
+
 
 /* —————— UC-Berkeley blocky aesthetic —————— */
 const styles = StyleSheet.create({
