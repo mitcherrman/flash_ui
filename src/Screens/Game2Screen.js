@@ -1,26 +1,30 @@
 // src/Screens/Game2Screen.js
 import React from "react";
+import { View } from "react-native";
 import FlipDrill from "../components/FlipDrill";
 
 export default function Game2Screen({ route, navigation }) {
-  const {
-    deckId,
-    mode = "basic",
-    n = "all",
-    order = "doc",
-    startOrdinal, // may be undefined unless coming from TOC
-  } = route.params || {};
-
-  const openTOC = () =>
-    navigation.navigate("TOC", { deckId, returnTo: "Game2", mode });
+  const deckId = route.params?.deckId;
+  const mode = route.params?.mode ?? "basic";
+  const n = route.params?.n ?? "all";
+  const order = route.params?.order ?? "doc";
+  const startOrdinal = route.params?.startOrdinal ?? null;
 
   return (
-    <FlipDrill
-      deckId={deckId}
-      n={n}
-      order={order}
-      startOrdinal={startOrdinal}
-      onOpenTOC={openTOC}
-    />
+    <View style={{ flex: 1 }}>
+      <FlipDrill
+        deckId={deckId}
+        n={n}
+        order={order}
+        startOrdinal={startOrdinal}
+        onOpenTOC={() =>
+          navigation.navigate("TOC", {
+            deckId,
+            returnTo: "Game2",
+            mode,
+          })
+        }
+      />
+    </View>
   );
 }

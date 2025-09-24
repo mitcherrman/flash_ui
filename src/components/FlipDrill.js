@@ -3,7 +3,7 @@
    • UC-Berkeley palette, larger type
    • Toggle to show/hide excerpt
    • Shows source info: Section, Page, Context, Excerpt
-   • TOC button, ordinal badge, jump-to-ordinal (keeps original order)
+   • TOC jump without reordering: we keep list in doc order and set initial index locally
 */
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
@@ -19,16 +19,17 @@ import {
   Switch,
   TouchableOpacity,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import * as Haptics from "expo-haptics";
 import { API_BASE } from "../config";
 
 const API_ROOT = `${API_BASE}/api/flashcards`;
-const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 export default function FlipDrill({
   deckId,
-  n = "all",           // number of cards, or "all"
-  order = "random",     // "random" | "doc"
-  startOrdinal,         // 1-based when order="doc"
+  n = "all",
+  order = "random",          // "random" | "doc"
+  startOrdinal = null,       // number | null (1-based)
   onOpenTOC,
 }) {
   const { width } = useWindowDimensions();
@@ -44,6 +45,18 @@ export default function FlipDrill({
   const flipAnim = useRef(new Animated.Value(0)).current;
   const panX = useRef(new Animated.Value(0)).current;
 
+  // Ensure a stable, valid number or null
+  const startOrdinalNum = useMemo(() => {
+    const v =
+      typeof startOrdinal === "number"
+        ? startOrdinal
+        : startOrdinal != null
+        ? parseInt(String(startOrdinal), 10)
+        : null;
+    return Number.isFinite(v) && v > 0 ? v : null;
+  }, [startOrdinal]);
+
+  // flip animation
   useEffect(() => {
     Animated.timing(flipAnim, {
       toValue: flipped ? 180 : 0,
@@ -52,49 +65,58 @@ export default function FlipDrill({
     }).start();
   }, [flipped]);
 
-  const frontRot = flipAnim.interpolate({ inputRange: [0, 180], outputRange: ["0deg", "180deg"] });
-  const backRot  = flipAnim.interpolate({ inputRange: [0, 180], outputRange: ["180deg", "360deg"] });
+  const frontRot = flipAnim.interpolate({
+    inputRange: [0, 180],
+    outputRange: ["0deg", "180deg"],
+  });
+  const backRot = flipAnim.interpolate({
+    inputRange: [0, 180],
+    outputRange: ["180deg", "360deg"],
+  });
 
-  // Load cards; KEEP original doc order. Open at startOrdinal client-side.
+  // Prevent redundant fetch loops
+  const lastURLRef = useRef("");
+
+  // Load cards (always in doc order when order="doc")
   useEffect(() => {
-    let alive = true;
     (async () => {
       try {
         const params = new URLSearchParams();
         params.set("deck_id", String(deckId));
         params.set("n", typeof n === "string" ? n : String(n));
         if (order) params.set("order", order);
-        // IMPORTANT: do NOT send start_ordinal; we keep order and jump locally.
-
+        // IMPORTANT: do NOT send start_ordinal – we don’t want the server to rotate
         const url = `${API_ROOT}/hand/?${params.toString()}`;
+
+        if (url === lastURLRef.current) return;
+        lastURLRef.current = url;
+
         const r = await fetch(url);
         if (!r.ok) {
           const txt = await r.text();
-          throw new Error(`HTTP ${r.status} • ${txt.slice(0, 160)}`);
+          throw new Error(`HTTP ${r.status} • ${txt.slice(0, 140)}`);
         }
-
         const data = await r.json();
-        if (!alive) return;
 
-        setCards(Array.isArray(data) ? data : []);
+        setCards(data);
+        // Jump to the requested ordinal locally while keeping doc order intact
+        const initial =
+          order === "doc" &&
+          startOrdinalNum != null &&
+          startOrdinalNum >= 1 &&
+          startOrdinalNum <= data.length
+            ? startOrdinalNum - 1
+            : 0;
+        setIdx(initial);
         setFlipped(false);
-        setErr("");
-
-        // Open at requested ordinal but preserve order
-        if (order === "doc" && startOrdinal != null && data?.length) {
-          const i = clamp((parseInt(startOrdinal, 10) || 1) - 1, 0, data.length - 1);
-          setIdx(i);
-        } else {
-          setIdx(0);
-        }
       } catch (e) {
-        if (!alive) return;
         setErr(String(e));
       }
     })();
-    return () => { alive = false; };
-  }, [deckId, n, order, startOrdinal]);
+    // Note: startOrdinalNum intentionally NOT in deps so we don't refetch just to jump
+  }, [deckId, n, order]);
 
+  // Swipe navigation
   const responder = useMemo(
     () =>
       PanResponder.create({
@@ -111,11 +133,13 @@ export default function FlipDrill({
 
   const nextCard = () => {
     if (!cards.length) return;
+    Haptics.selectionAsync();
     setIdx((i) => (i + 1) % cards.length);
     setFlipped(false);
   };
   const prevCard = () => {
     if (!cards.length) return;
+    Haptics.selectionAsync();
     setIdx((i) => (i - 1 + cards.length) % cards.length);
     setFlipped(false);
   };
@@ -139,7 +163,7 @@ export default function FlipDrill({
     return (
       <SafeAreaView style={styles.center}>
         <ActivityIndicator size="large" color="#FDB515" />
-        <Text style={{ marginTop: 12, color: "#E6ECF0", fontSize: 18 }}>
+        <Text style={{ marginTop: 8, color: "#E6ECF0", fontSize: 18 }}>
           Loading cards…
         </Text>
       </SafeAreaView>
@@ -153,14 +177,12 @@ export default function FlipDrill({
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* top bar */}
       <View style={styles.topBar}>
         <Text style={styles.counter}>
-          {/* This counter now reflects the true position in the fixed order */}
           Card {idx + 1}/{cards.length}
         </Text>
 
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
           {onOpenTOC && (
             <TouchableOpacity onPress={onOpenTOC} style={styles.tocBtn}>
               <Text style={styles.tocTxt}>TOC</Text>
@@ -178,7 +200,6 @@ export default function FlipDrill({
         </View>
       </View>
 
-      {/* card */}
       <Animated.View
         {...responder.panHandlers}
         style={[
@@ -187,12 +208,11 @@ export default function FlipDrill({
           { transform: [{ translateX: panX }] },
         ]}
       >
-        {/* ordinal badge */}
         <View style={styles.badge}>
-          <Text style={styles.badgeTxt}>#{card.ordinal ?? "—"}</Text>
+          {/* badge uses current index (1-based), which aligns to doc order now */}
+          <Text style={styles.badgeTxt}>#{idx + 1}</Text>
         </View>
 
-        {/* front */}
         <Animated.View
           style={[
             styles.card,
@@ -202,7 +222,6 @@ export default function FlipDrill({
           <Text style={styles.textFront}>{card.front}</Text>
         </Animated.View>
 
-        {/* back */}
         <Animated.View
           style={[
             styles.card,
@@ -210,30 +229,49 @@ export default function FlipDrill({
             { transform: [{ perspective: 1000 }, { rotateY: backRot }] },
           ]}
         >
+          <LinearGradient
+            colors={["rgba(0,0,0,0.08)", "rgba(0,0,0,0.02)", "rgba(0,0,0,0.08)"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+          <LinearGradient
+            colors={["rgba(0,0,0,0.06)", "rgba(0,0,0,0.02)", "rgba(0,0,0,0.06)"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={StyleSheet.absoluteFillObject}
+          />
           <Text style={styles.textBack}>{card.back}</Text>
         </Animated.View>
 
-        {/* tap to flip */}
-        <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setFlipped((f) => !f)} />
+        <Pressable
+          style={StyleSheet.absoluteFillObject}
+          onPress={() => {
+            Haptics.selectionAsync();
+            setFlipped((f) => !f);
+          }}
+        />
       </Animated.View>
 
-      {/* source info */}
       <View style={[styles.infoPanel, { width: CARD_W }]}>
         <Text style={styles.infoLine}>
           {!!sectionName && <Text style={styles.infoKey}>Section: </Text>}
           <Text style={styles.infoVal}>{sectionName || "—"}</Text>
         </Text>
+
         <Text style={styles.infoLine}>
           <Text style={styles.infoKey}>Page: </Text>
           <Text style={styles.infoVal}>{pageLabel || "—"}</Text>
-          {!!contextTag && <Text style={styles.infoVal}>   •   {contextTag}</Text>}
+          {!!contextTag && (
+            <Text style={styles.infoVal}>   •   {contextTag}</Text>
+          )}
         </Text>
-        {!!showCtx && !!card.excerpt && (
+
+        {showCtx && !!card.excerpt && (
           <Text style={styles.excerpt}>"{ellipsize(card.excerpt, 360)}"</Text>
         )}
       </View>
 
-      {/* controls */}
       <View style={styles.buttons}>
         <Pressable style={styles.btn} onPress={prevCard}>
           <Text style={styles.btnTxt}>Prev</Text>
@@ -246,7 +284,6 @@ export default function FlipDrill({
   );
 }
 
-/* ---------- UC Berkeley look ---------- */
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -260,24 +297,23 @@ const styles = StyleSheet.create({
     backgroundColor: "#003262",
   },
   topBar: {
-    marginTop: 10,
+    marginTop: 16,
     width: "92%",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
   counter: { fontSize: 20, color: "#E6ECF0", fontWeight: "700" },
-  ctxToggle: { flexDirection: "row", alignItems: "center", gap: 8 },
+  ctxToggle: { flexDirection: "row", alignItems: "center", marginLeft: 16 },
   ctxLabel: { color: "#E6ECF0", marginRight: 8, fontSize: 16 },
-
   tocBtn: { backgroundColor: "#0ea5e9", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10 },
   tocTxt: { color: "white", fontWeight: "800" },
 
-  cardWrap: { marginTop: 20 },
+  cardWrap: { marginTop: 24 },
   badge: {
     position: "absolute",
-    top: -10,
-    left: 10,
+    top: -8,
+    left: 12,
     backgroundColor: "#0ea5e9",
     paddingHorizontal: 8,
     paddingVertical: 4,
@@ -325,11 +361,11 @@ const styles = StyleSheet.create({
     borderColor: "#0C4A6E",
     padding: 12,
   },
-  infoLine: { color: "#E6ECF0", fontSize: 16, marginBottom: 6 },
+  infoLine: { color: "#E6ECF0", fontSize: 16, marginBottom: 8 },
   infoKey: { color: "#FFCD00", fontWeight: "800" },
   infoVal: { color: "#E6ECF0", fontWeight: "700" },
   excerpt: {
-    marginTop: 6,
+    marginTop: 8,
     color: "#F1F5F9",
     fontSize: 15,
     fontStyle: "italic",
@@ -338,15 +374,15 @@ const styles = StyleSheet.create({
 
   buttons: {
     position: "absolute",
-    bottom: 34,
+    bottom: 32,
     flexDirection: "row",
-    gap: 20,
   },
   btn: {
     backgroundColor: "#FDB515",
-    paddingHorizontal: 26,
-    paddingVertical: 14,
-    borderRadius: 10,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+    marginHorizontal: 8,
   },
   btnTxt: { color: "#082F49", fontWeight: "800", fontSize: 16 },
 });

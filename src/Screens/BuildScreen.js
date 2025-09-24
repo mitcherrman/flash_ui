@@ -1,13 +1,5 @@
 // src/Screens/BuildScreen.js
-//
-// Uploads the PDF, asks the backend to build a deck, shows any warnings
-// (e.g., sections with not enough material), and then routes to Game Picker.
-// Includes a Home button to return to the Upload screen.
-//
-// If your upload route name isn't "Upload", change the navigation.reset()
-// call in onHome() accordingly.
-
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   View,
   Text,
@@ -17,6 +9,8 @@ import {
   StyleSheet,
   Alert,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { Animated } from "react-native";
 import { API_BASE } from "../config";
 
 export default function BuildScreen({ route, navigation }) {
@@ -29,9 +23,24 @@ export default function BuildScreen({ route, navigation }) {
   const onHome = () => {
     navigation.reset({
       index: 0,
-      routes: [{ name: "Upload" }], // change to your Upload route name if different
+      routes: [{ name: "Upload" }],
     });
   };
+
+  // pulsing emoji (cute loader)
+  const pulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 600, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 600, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, []);
+  const scale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.12] });
+  const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] });
 
   useEffect(() => {
     (async () => {
@@ -59,7 +68,6 @@ export default function BuildScreen({ route, navigation }) {
         const res = await fetch(url, { method: "POST", body: fd });
 
         if (!res.ok) {
-          // Try to extract useful error details
           let details = "";
           try {
             const j = await res.json();
@@ -71,9 +79,8 @@ export default function BuildScreen({ route, navigation }) {
         }
 
         setPhase("build");
-        const json = await res.json(); // ✅ only parse once
+        const json = await res.json();
 
-        // Surface backend warnings (e.g., a section requested more cards than available)
         if (Array.isArray(json.warnings) && json.warnings.length) {
           Alert.alert(
             "Some sections had less material",
@@ -82,7 +89,6 @@ export default function BuildScreen({ route, navigation }) {
           );
         }
 
-        // Go to game picker with the new deck
         navigation.reset({
           index: 0,
           routes: [{ name: "Picker", params: { deckId: json.deck_id } }],
@@ -103,11 +109,14 @@ export default function BuildScreen({ route, navigation }) {
 
   return (
     <View style={styles.container}>
-      {/* Title */}
+      <LinearGradient
+        colors={["#032e5d", "#003262"]}
+        style={styles.topGrad}
+      />
+
       <Text style={styles.title}>Flashcard Builder</Text>
       <Text style={styles.subtitle}>{headline}</Text>
 
-      {/* Card */}
       <View style={styles.card}>
         {phase !== "error" ? (
           <>
@@ -116,7 +125,6 @@ export default function BuildScreen({ route, navigation }) {
               {filename}
             </Text>
 
-            {/* progress dots */}
             <View style={styles.progressRow}>
               <View
                 style={[
@@ -138,8 +146,16 @@ export default function BuildScreen({ route, navigation }) {
               This can take a moment for larger PDFs.
             </Text>
 
-            {/* Home button while loading */}
-            <View style={{ height: 10 }} />
+            <View style={{ height: 8 }} />
+            <Animated.Text
+              style={[styles.cuteEmoji, { transform: [{ scale }], opacity }]}
+              accessibilityRole="image"
+              accessibilityLabel="Loading"
+            >
+              📘
+            </Animated.Text>
+
+            <View style={{ height: 16 }} />
             <Pressable style={[styles.btn, styles.btnHollow]} onPress={onHome}>
               <Text style={[styles.btnTxt, styles.btnTxtHollow]}>Home</Text>
             </Pressable>
@@ -147,7 +163,7 @@ export default function BuildScreen({ route, navigation }) {
         ) : (
           <>
             <Text style={styles.errorText}>{errMsg}</Text>
-            <View style={{ height: 12 }} />
+            <View style={{ height: 16 }} />
             <View style={styles.btnRow}>
               <Pressable style={styles.btn} onPress={() => navigation.goBack()}>
                 <Text style={styles.btnTxt}>Back</Text>
@@ -166,10 +182,19 @@ export default function BuildScreen({ route, navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#003262", // Berkeley Blue
+    backgroundColor: "#003262",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
+  },
+  topGrad: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 96,
+    borderBottomWidth: 1,
+    borderBottomColor: "#0C4A6E",
   },
   title: {
     color: "#E6ECF0",
@@ -177,7 +202,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     textAlign: "center",
   },
-  subtitle: { color: "#A8B3CF", marginTop: 6, fontSize: 16, textAlign: "center" },
+  subtitle: { color: "#A8B3CF", marginTop: 8, fontSize: 16, textAlign: "center" },
 
   card: {
     marginTop: 16,
@@ -191,30 +216,31 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   cardTitle: {
-    marginTop: 10,
+    marginTop: 8,
     color: "#E6ECF0",
     fontWeight: "700",
     textAlign: "center",
   },
 
   progressRow: {
-    marginTop: 14,
+    marginTop: 16,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
   },
   progressDot: {
     width: 12,
     height: 12,
     borderRadius: 6,
     borderWidth: 2,
+    marginHorizontal: 6,
   },
   dotIdle: { borderColor: "#1f3a5f", backgroundColor: "transparent" },
   dotActive: { borderColor: "#FFCD00", backgroundColor: "#FDB515" },
   dotDone: { borderColor: "#22c55e", backgroundColor: "#22c55e" },
-  progressLabel: { color: "#E6ECF0", marginHorizontal: 6 },
+  progressLabel: { color: "#E6ECF0" },
 
-  hint: { color: "#A8B3CF", marginTop: 10, textAlign: "center" },
+  hint: { color: "#A8B3CF", marginTop: 8, textAlign: "center" },
+  cuteEmoji: { fontSize: 44 },
 
   errorText: {
     color: "#FFCDD2",
@@ -222,12 +248,12 @@ const styles = StyleSheet.create({
     textAlign: "left",
   },
 
-  btnRow: { flexDirection: "row", gap: 10 },
+  btnRow: { flexDirection: "row", gap: 16 },
   btn: {
-    backgroundColor: "#FDB515", // Berkeley Gold
-    paddingHorizontal: 22,
+    backgroundColor: "#FDB515",
+    paddingHorizontal: 24,
     paddingVertical: 12,
-    borderRadius: 10,
+    borderRadius: 12,
   },
   btnSecondary: {
     backgroundColor: "#0B3D91",

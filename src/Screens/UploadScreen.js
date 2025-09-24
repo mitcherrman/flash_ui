@@ -1,10 +1,4 @@
 // src/Screens/UploadScreen.js
-// ——————————————————————————————————————————————
-// 1) Pick a PDF
-// 2) Background-call /analyze to get stats + recommendation
-// 3) Let the user choose #cards (and optionally edit per-section counts)
-// 4) Navigate to <BuildScreen> with chosen options
-// ——————————————————————————————————————————————
 import React, { useEffect, useMemo, useState } from "react";
 import {
   View, Text, Button, Alert, ActivityIndicator,
@@ -12,21 +6,20 @@ import {
 } from "react-native";
 import Slider from "@react-native-community/slider";
 import * as DocumentPicker from "expo-document-picker";
+import { LinearGradient } from "expo-linear-gradient";
 import { API_BASE } from "../config";
 
 export default function UploadScreen({ navigation }) {
-  const [file, setFile]               = useState(null);   // { uri, name, mimeType, ... }
+  const [file, setFile]               = useState(null);
   const [cardsWanted, setCardsWanted] = useState(12);
   const [coverageMode, setCoverage]   = useState("even"); // "even" | "section"
 
-  // analysis coming from Django
   const [analyzing, setAnalyzing] = useState(false);
   const [stats, setStats]         = useState(null);
   const [err, setErr]             = useState("");
 
-  // editable per-section allocation
-  const [allocs, setAllocs]       = useState([]);        // [{title, page_start, page_end, share, cards}]
-  const [allocDirty, setAllocDirty]= useState(false);     // has user edited counts?
+  const [allocs, setAllocs]        = useState([]);
+  const [allocDirty, setAllocDirty]= useState(false);
 
   async function pick() {
     try {
@@ -79,7 +72,6 @@ export default function UploadScreen({ navigation }) {
     }
   }
 
-  // When stats arrive, seed allocations proportionally to shares
   useEffect(() => {
     if (!stats?.per_section_allocation) return;
     const total = cardsWanted || stats.recommended_cards || 12;
@@ -94,7 +86,6 @@ export default function UploadScreen({ navigation }) {
     setAllocDirty(false);
   }, [stats]);
 
-  // If the slider changes and user hasn't manually edited, rescale allocs
   useEffect(() => {
     if (!allocs.length || allocDirty) return;
     const tot = cardsWanted || 0;
@@ -115,23 +106,20 @@ export default function UploadScreen({ navigation }) {
     const total = next.reduce((s, a) => s + (a.cards || 0), 0);
     setCardsWanted(total);
   }
-
   function bump(index, delta) {
     setSectionCount(index, (allocs[index]?.cards || 0) + delta);
   }
-
   function resetAllocations() {
     setAllocDirty(false);
-    setCardsWanted(prev => prev); // trigger rescale in useEffect
+    setCardsWanted(prev => prev);
   }
-
   function next() {
     if (!file) return Alert.alert("Choose a PDF first");
     const total = Math.max(3, Math.min(30, cardsWanted || 12));
     navigation.navigate("Build", {
       file,
       cardsWanted: total,
-      coverage: coverageMode, // not used by server when explicit allocations exist
+      coverage: coverageMode,
       allocations: allocs.map(a => ({
         title: a.title,
         page_start: a.page_start,
@@ -141,7 +129,6 @@ export default function UploadScreen({ navigation }) {
     });
   }
 
-  // coverage helpers (rough preview)
   const pages          = stats?.pages || 0;
   const sectionsCount  = stats?.per_section_allocation?.length || 0;
   const coveragePages  = pages ? Math.min(1, (cardsWanted || 0) / pages) : 0;
@@ -169,11 +156,21 @@ export default function UploadScreen({ navigation }) {
   );
 
   return (
-    <ScrollView contentContainerStyle={styles.center} style={{ backgroundColor: "#0a0f1f" }}>
+    <ScrollView
+      contentContainerStyle={[styles.center, !file && styles.centerHero]}
+      style={{ backgroundColor: "#0a0f1f" }}
+    >
+      <View style={{ alignSelf: "stretch", height: 96, marginBottom: 16 }}>
+        <LinearGradient
+          colors={["#032e5d", "#003262"]}
+          style={{ flex: 1, borderBottomWidth: 1, borderBottomColor: "#0C4A6E" }}
+        />
+      </View>
+
       <Text style={styles.h1}>Make Flashcards</Text>
       <Text style={styles.subtle}>Upload a PDF.</Text>
 
-      <View style={{ height: 12 }} />
+      <View style={{ height: 16 }} />
 
       <Button title="Choose PDF" onPress={pick} color="#3b82f6" />
 
@@ -197,13 +194,13 @@ export default function UploadScreen({ navigation }) {
             <View style={styles.statsCard}>
               <Text style={styles.kv}><Text style={styles.k}>Pages</Text> <Text style={styles.v}>{stats.pages}</Text></Text>
               <Text style={styles.kv}><Text style={styles.k}>Words</Text> <Text style={styles.v}>{stats.words}</Text></Text>
-              <View style={{ height: 6 }} />
+              <View style={{ height: 8 }} />
               <Text style={styles.rec}>{recText}</Text>
             </View>
           )}
 
-          <View style={{ marginTop: 10, flexDirection: "row", alignItems: "center" }}>
-            <Text style={{ color: "#cbd5e1", marginRight: 10 }}>Coverage:</Text>
+          <View style={{ marginTop: 16, flexDirection: "row", alignItems: "center" }}>
+            <Text style={{ color: "#cbd5e1", marginRight: 8 }}>Coverage:</Text>
             <Chip
               label="Even per-page"
               active={coverageMode === "even"}
@@ -216,7 +213,7 @@ export default function UploadScreen({ navigation }) {
             />
           </View>
 
-          <View style={{ width: "100%", marginVertical: 18 }}>
+          <View style={{ width: "100%", marginVertical: 16 }}>
             <Text style={styles.sliderLabel}>
               Cards to generate: <Text style={{ color: "#93c5fd", fontWeight: "700" }}>{cardsWanted}</Text>
             </Text>
@@ -274,15 +271,23 @@ export default function UploadScreen({ navigation }) {
 }
 
 const styles = {
-  center: { minHeight: "100%", alignItems: "center", padding: 20 },
+  center: {
+    flexGrow: 1,
+    minHeight: "100%",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    padding: 16,
+  },
+  centerHero: { justifyContent: "center" },
+
   h1: { color: "#e5e7eb", fontSize: 28, fontWeight: "800" },
-  subtle: { color: "#94a3b8", marginTop: 6, textAlign: "center" },
-  filename: { color: "#e5e7eb", marginBottom: 8, marginTop: 10, fontWeight: "600" },
+  subtle: { color: "#94a3b8", marginTop: 8, textAlign: "center" },
+  filename: { color: "#e5e7eb", marginBottom: 8, marginTop: 8, fontWeight: "600" },
 
   panel: {
-    borderWidth: 1, borderColor: "#334155", padding: 10, borderRadius: 10, backgroundColor: "#0b1226", marginTop: 6,
+    borderWidth: 1, borderColor: "#334155", padding: 12, borderRadius: 12, backgroundColor: "#0b1226", marginTop: 8,
   },
-  panelHdr: { color: "#cbd5e1", fontWeight: "700", marginBottom: 6 },
+  panelHdr: { color: "#cbd5e1", fontWeight: "700", marginBottom: 8 },
   panelText: { color: "#a8b3cf" },
 
   statsCard: {
@@ -294,22 +299,22 @@ const styles = {
   rec: { color: "#22d3ee", marginTop: 8, fontWeight: "700" },
 
   sliderLabel: { color: "#e5e7eb", marginBottom: 8 },
-  coverage: { color: "#a7f3d0", marginTop: 2 },
+  coverage: { color: "#a7f3d0", marginTop: 4 },
 
   allocRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 6,
+    paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: "#1f2937",
   },
-  allocTitle: { color: "#cbd5e1", flexShrink: 1, paddingRight: 10 },
-  allocControls: { flexDirection: "row", alignItems: "center", gap: 6 },
+  allocTitle: { color: "#cbd5e1", flexShrink: 1, paddingRight: 8 },
+  allocControls: { flexDirection: "row", alignItems: "center", gap: 8 },
   allocInput: {
     width: 48, textAlign: "center",
     borderWidth: 1, borderColor: "#334155",
     color: "#e5e7eb", backgroundColor: "#0b1226",
-    borderRadius: 6, paddingVertical: 4, marginHorizontal: 6,
+    borderRadius: 8, paddingVertical: 8, marginHorizontal: 8,
   },
 };
