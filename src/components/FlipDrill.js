@@ -1,9 +1,11 @@
 // src/components/FlipDrill.js
 /* FlipDrill – two-sided flash-card drill (basic / MC)
-   • UC-Berkeley palette, larger type
-   • Toggle to show/hide excerpt
-   • Shows source info: Section, Page, Context, Excerpt
-   • TOC jump without reordering: we keep list in doc order and set initial index locally
+   • UC-Berkeley palette
+   • Toggle excerpt
+   • Section/Page/Context info
+   • TOC jump without reordering (doc order; local index jump)
+   • Landscape: hide info panel on mobile only (desktop/web keeps it visible)
+   • Watermark on both faces; back is mirrored
 */
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
@@ -18,25 +20,47 @@ import {
   ActivityIndicator,
   Switch,
   TouchableOpacity,
+  Image,
+  Platform,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { API_BASE } from "../config";
 
 import styles from "../styles/components/FlipDrill.styles";
 
 const API_ROOT = `${API_BASE}/api/flashcards`;
+const WATERMARK = require("../../assets/BEARlogo.png");
+const CARD_ASPECT = 0.6;
 
 export default function FlipDrill({
   deckId,
   n = "all",
-  order = "random",          // "random" | "doc"
-  startOrdinal = null,       // number | null (1-based)
+  order = "random",
+  startOrdinal = null,
   onOpenTOC,
 }) {
-  const { width } = useWindowDimensions();
-  const CARD_W = Math.min(900, width * 0.9);
-  const CARD_H = CARD_W * 0.6;
+  const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const isLandscape = width > height;
+  const isWeb = Platform.OS === "web";
+
+  // Hide info panel only on native (iOS/Android) when landscape
+  const hideInfoPanel = !isWeb && isLandscape;
+
+  const BORDER = isLandscape ? 8 : 16;
+
+  let CARD_W, CARD_H;
+  if (!isLandscape) {
+    CARD_W = Math.min(900, width * 0.9);
+    CARD_H = CARD_W * CARD_ASPECT;
+  } else {
+    const availW = width - (insets.left + insets.right) - BORDER * 2;
+    const availH = height - (insets.top + insets.bottom) - BORDER * 2;
+    CARD_W = Math.min(900, availW, availH / CARD_ASPECT);
+    CARD_H = CARD_W * CARD_ASPECT;
+  }
 
   const [cards, setCards] = useState([]);
   const [idx, setIdx] = useState(0);
@@ -47,7 +71,6 @@ export default function FlipDrill({
   const flipAnim = useRef(new Animated.Value(0)).current;
   const panX = useRef(new Animated.Value(0)).current;
 
-  // Ensure a stable, valid number or null
   const startOrdinalNum = useMemo(() => {
     const v =
       typeof startOrdinal === "number"
@@ -58,7 +81,6 @@ export default function FlipDrill({
     return Number.isFinite(v) && v > 0 ? v : null;
   }, [startOrdinal]);
 
-  // flip animation
   useEffect(() => {
     Animated.timing(flipAnim, {
       toValue: flipped ? 180 : 0,
@@ -76,10 +98,8 @@ export default function FlipDrill({
     outputRange: ["180deg", "360deg"],
   });
 
-  // Prevent redundant fetch loops
   const lastURLRef = useRef("");
 
-  // Load cards (always in doc order when order="doc")
   useEffect(() => {
     (async () => {
       try {
@@ -87,7 +107,6 @@ export default function FlipDrill({
         params.set("deck_id", String(deckId));
         params.set("n", typeof n === "string" ? n : String(n));
         if (order) params.set("order", order);
-        // IMPORTANT: do NOT send start_ordinal – we don’t want the server to rotate
         const url = `${API_ROOT}/hand/?${params.toString()}`;
 
         if (url === lastURLRef.current) return;
@@ -101,7 +120,6 @@ export default function FlipDrill({
         const data = await r.json();
 
         setCards(data);
-        // Jump to the requested ordinal locally while keeping doc order intact
         const initial =
           order === "doc" &&
           startOrdinalNum != null &&
@@ -115,10 +133,8 @@ export default function FlipDrill({
         setErr(String(e));
       }
     })();
-    // Note: startOrdinalNum intentionally NOT in deps so we don't refetch just to jump
   }, [deckId, n, order]);
 
-  // Swipe navigation
   const responder = useMemo(
     () =>
       PanResponder.create({
@@ -178,8 +194,21 @@ export default function FlipDrill({
   const contextTag = card.context || "";
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.topBar}>
+    <SafeAreaView
+      style={[
+        styles.container,
+        isLandscape && { paddingTop: BORDER, paddingBottom: BORDER },
+      ]}
+    >
+      <View
+        style={[
+          styles.topBar,
+          isLandscape && [
+            styles.topBarFloat,
+            { top: insets.top + 4, paddingHorizontal: 12 },
+          ],
+        ]}
+      >
         <Text style={styles.counter}>
           Card {idx + 1}/{cards.length}
         </Text>
@@ -211,19 +240,26 @@ export default function FlipDrill({
         ]}
       >
         <View style={styles.badge}>
-          {/* badge uses current index (1-based), which aligns to doc order now */}
           <Text style={styles.badgeTxt}>#{idx + 1}</Text>
         </View>
 
+        {/* FRONT */}
         <Animated.View
           style={[
             styles.card,
             { transform: [{ perspective: 1000 }, { rotateY: frontRot }] },
           ]}
         >
+          <Image
+            source={WATERMARK}
+            style={styles.watermark}
+            resizeMode="contain"
+            pointerEvents="none"
+          />
           <Text style={styles.textFront}>{card.front}</Text>
         </Animated.View>
 
+        {/* BACK */}
         <Animated.View
           style={[
             styles.card,
@@ -243,6 +279,12 @@ export default function FlipDrill({
             end={{ x: 1, y: 0 }}
             style={StyleSheet.absoluteFillObject}
           />
+          <Image
+            source={WATERMARK}
+            style={[styles.watermark, styles.watermarkBack]}
+            resizeMode="contain"
+            pointerEvents="none"
+          />
           <Text style={styles.textBack}>{card.back}</Text>
         </Animated.View>
 
@@ -255,26 +297,29 @@ export default function FlipDrill({
         />
       </Animated.View>
 
-      <View style={[styles.infoPanel, { width: CARD_W }]}>
-        <Text style={styles.infoLine}>
-          {!!sectionName && <Text style={styles.infoKey}>Section: </Text>}
-          <Text style={styles.infoVal}>{sectionName || "—"}</Text>
-        </Text>
+      {/* Info panel — shown on web always; hidden on native landscape */}
+      {!hideInfoPanel && (
+        <View style={[styles.infoPanel, { width: CARD_W, marginBottom: 84 }]}>
+          <Text style={styles.infoLine}>
+            {!!sectionName && <Text style={styles.infoKey}>Section: </Text>}
+            <Text style={styles.infoVal}>{sectionName || "—"}</Text>
+          </Text>
 
-        <Text style={styles.infoLine}>
-          <Text style={styles.infoKey}>Page: </Text>
-          <Text style={styles.infoVal}>{pageLabel || "—"}</Text>
-          {!!contextTag && (
-            <Text style={styles.infoVal}>   •   {contextTag}</Text>
+          <Text style={styles.infoLine}>
+            <Text style={styles.infoKey}>Page: </Text>
+            <Text style={styles.infoVal}>{pageLabel || "—"}</Text>
+            {!!contextTag && (
+              <Text style={styles.infoVal}>   •   {contextTag}</Text>
+            )}
+          </Text>
+
+          {showCtx && !!card.excerpt && (
+            <Text style={styles.excerpt}>"{ellipsize(card.excerpt, 360)}"</Text>
           )}
-        </Text>
+        </View>
+      )}
 
-        {showCtx && !!card.excerpt && (
-          <Text style={styles.excerpt}>"{ellipsize(card.excerpt, 360)}"</Text>
-        )}
-      </View>
-
-      <View style={styles.buttons}>
+      <View style={[styles.buttons, { bottom: 34 + insets.bottom }]}>
         <Pressable style={styles.btn} onPress={prevCard}>
           <Text style={styles.btnTxt}>Prev</Text>
         </Pressable>
