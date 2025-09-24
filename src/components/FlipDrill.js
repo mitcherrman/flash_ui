@@ -23,6 +23,8 @@ import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
 import { API_BASE } from "../config";
 
+import styles from "../styles/components/FlipDrill.styles";
+
 const API_ROOT = `${API_BASE}/api/flashcards`;
 
 export default function FlipDrill({
@@ -283,106 +285,3 @@ export default function FlipDrill({
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#003262",
-    alignItems: "center",
-  },
-  center: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#003262",
-  },
-  topBar: {
-    marginTop: 16,
-    width: "92%",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  counter: { fontSize: 20, color: "#E6ECF0", fontWeight: "700" },
-  ctxToggle: { flexDirection: "row", alignItems: "center", marginLeft: 16 },
-  ctxLabel: { color: "#E6ECF0", marginRight: 8, fontSize: 16 },
-  tocBtn: { backgroundColor: "#0ea5e9", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10 },
-  tocTxt: { color: "white", fontWeight: "800" },
-
-  cardWrap: { marginTop: 24 },
-  badge: {
-    position: "absolute",
-    top: -8,
-    left: 12,
-    backgroundColor: "#0ea5e9",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    zIndex: 10,
-  },
-  badgeTxt: { color: "white", fontWeight: "800" },
-
-  card: {
-    position: "absolute",
-    width: "100%",
-    height: "100%",
-    borderRadius: 20,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-    backfaceVisibility: "hidden",
-    shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 6 },
-    paddingHorizontal: 16,
-  },
-  cardBack: { backgroundColor: "#FFCD00" },
-  textFront: {
-    fontSize: 28,
-    textAlign: "center",
-    color: "#0f172a",
-    fontWeight: "800",
-    lineHeight: 36,
-  },
-  textBack: {
-    fontSize: 28,
-    textAlign: "center",
-    color: "#0f172a",
-    fontWeight: "800",
-    lineHeight: 36,
-  },
-
-  infoPanel: {
-    marginTop: 16,
-    backgroundColor: "#012B57",
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#0C4A6E",
-    padding: 12,
-  },
-  infoLine: { color: "#E6ECF0", fontSize: 16, marginBottom: 8 },
-  infoKey: { color: "#FFCD00", fontWeight: "800" },
-  infoVal: { color: "#E6ECF0", fontWeight: "700" },
-  excerpt: {
-    marginTop: 8,
-    color: "#F1F5F9",
-    fontSize: 15,
-    fontStyle: "italic",
-    lineHeight: 20,
-  },
-
-  buttons: {
-    position: "absolute",
-    bottom: 32,
-    flexDirection: "row",
-  },
-  btn: {
-    backgroundColor: "#FDB515",
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 12,
-    marginHorizontal: 8,
-  },
-  btnTxt: { color: "#082F49", fontWeight: "800", fontSize: 16 },
-});

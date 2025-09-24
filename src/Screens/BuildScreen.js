@@ -13,6 +13,9 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Animated } from "react-native";
 import { API_BASE } from "../config";
 
+import styles from "../styles/screens/BuildScreen.styles";
+
+
 export default function BuildScreen({ route, navigation }) {
   const { file, cardsWanted = 12, allocations = [] } = route.params || {};
 
@@ -178,97 +181,3 @@ export default function BuildScreen({ route, navigation }) {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#003262",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 16,
-  },
-  topGrad: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 96,
-    borderBottomWidth: 1,
-    borderBottomColor: "#0C4A6E",
-  },
-  title: {
-    color: "#E6ECF0",
-    fontSize: 28,
-    fontWeight: "800",
-    textAlign: "center",
-  },
-  subtitle: { color: "#A8B3CF", marginTop: 8, fontSize: 16, textAlign: "center" },
-
-  card: {
-    marginTop: 16,
-    width: "92%",
-    maxWidth: 700,
-    backgroundColor: "#012B57",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#0C4A6E",
-    padding: 16,
-    alignItems: "center",
-  },
-  cardTitle: {
-    marginTop: 8,
-    color: "#E6ECF0",
-    fontWeight: "700",
-    textAlign: "center",
-  },
-
-  progressRow: {
-    marginTop: 16,
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  progressDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    borderWidth: 2,
-    marginHorizontal: 6,
-  },
-  dotIdle: { borderColor: "#1f3a5f", backgroundColor: "transparent" },
-  dotActive: { borderColor: "#FFCD00", backgroundColor: "#FDB515" },
-  dotDone: { borderColor: "#22c55e", backgroundColor: "#22c55e" },
-  progressLabel: { color: "#E6ECF0" },
-
-  hint: { color: "#A8B3CF", marginTop: 8, textAlign: "center" },
-  cuteEmoji: { fontSize: 44 },
-
-  errorText: {
-    color: "#FFCDD2",
-    fontFamily: Platform.select({ ios: "Courier", android: "monospace" }),
-    textAlign: "left",
-  },
-
-  btnRow: { flexDirection: "row", gap: 16 },
-  btn: {
-    backgroundColor: "#FDB515",
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 12,
-  },
-  btnSecondary: {
-    backgroundColor: "#0B3D91",
-    borderWidth: 1,
-    borderColor: "#FFCD00",
-  },
-  btnTxt: { color: "#082F49", fontWeight: "800", fontSize: 16 },
-  btnTxtAlt: { color: "#FFCD00", fontWeight: "800", fontSize: 16 },
-
-  btnHollow: {
-    backgroundColor: "transparent",
-    borderWidth: 1,
-    borderColor: "#FFCD00",
-  },
-  btnTxtHollow: {
-    color: "#FFCD00",
-  },
-});

@@ -9,6 +9,10 @@ import * as DocumentPicker from "expo-document-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { API_BASE } from "../config";
 
+// at top with other imports
+import styles from "../styles/screens/UploadScreen.styles";
+
+
 export default function UploadScreen({ navigation }) {
   const [file, setFile]               = useState(null);
   const [cardsWanted, setCardsWanted] = useState(12);
@@ -269,52 +273,3 @@ export default function UploadScreen({ navigation }) {
     </ScrollView>
   );
 }
-
-const styles = {
-  center: {
-    flexGrow: 1,
-    minHeight: "100%",
-    alignItems: "center",
-    justifyContent: "flex-start",
-    padding: 16,
-  },
-  centerHero: { justifyContent: "center" },
-
-  h1: { color: "#e5e7eb", fontSize: 28, fontWeight: "800" },
-  subtle: { color: "#94a3b8", marginTop: 8, textAlign: "center" },
-  filename: { color: "#e5e7eb", marginBottom: 8, marginTop: 8, fontWeight: "600" },
-
-  panel: {
-    borderWidth: 1, borderColor: "#334155", padding: 12, borderRadius: 12, backgroundColor: "#0b1226", marginTop: 8,
-  },
-  panelHdr: { color: "#cbd5e1", fontWeight: "700", marginBottom: 8 },
-  panelText: { color: "#a8b3cf" },
-
-  statsCard: {
-    backgroundColor: "#0b1226", borderWidth: 1, borderColor: "#334155", borderRadius: 12, padding: 12, marginVertical: 8,
-  },
-  kv: { color: "#cbd5e1", marginVertical: 2 },
-  k: { color: "#93c5fd" },
-  v: { color: "#e5e7eb", fontWeight: "700" },
-  rec: { color: "#22d3ee", marginTop: 8, fontWeight: "700" },
-
-  sliderLabel: { color: "#e5e7eb", marginBottom: 8 },
-  coverage: { color: "#a7f3d0", marginTop: 4 },
-
-  allocRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#1f2937",
-  },
-  allocTitle: { color: "#cbd5e1", flexShrink: 1, paddingRight: 8 },
-  allocControls: { flexDirection: "row", alignItems: "center", gap: 8 },
-  allocInput: {
-    width: 48, textAlign: "center",
-    borderWidth: 1, borderColor: "#334155",
-    color: "#e5e7eb", backgroundColor: "#0b1226",
-    borderRadius: 8, paddingVertical: 8, marginHorizontal: 8,
-  },
-};
