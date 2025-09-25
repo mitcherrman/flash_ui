@@ -1,11 +1,11 @@
 // src/components/FlipDrill.js
 /* FlipDrill – two-sided flash-card drill (basic / MC)
-   • UC-Berkeley palette
-   • Toggle excerpt
-   • Section/Page/Context info
-   • TOC jump without reordering (doc order; local index jump)
-   • Landscape: hide info panel on mobile only (desktop/web keeps it visible)
-   • Watermark on both faces; back is mirrored
+   • UC-Berkeley palette, larger type
+   • Toggle to show/hide excerpt
+   • Shows source info: Section, Page, Context, Excerpt
+   • TOC jump without reordering: keep list in doc order and set initial index locally
+   • Landscape: card fits fully with a slight border; UI floats over it
+   • Watermark image on card faces (subtle opacity)
 */
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
@@ -32,25 +32,25 @@ import styles from "../styles/components/FlipDrill.styles";
 
 const API_ROOT = `${API_BASE}/api/flashcards`;
 const WATERMARK = require("../../assets/BEARlogo.png");
-const CARD_ASPECT = 0.6;
+const CARD_ASPECT = 0.6; // height = width * 0.6
 
 export default function FlipDrill({
   deckId,
   n = "all",
-  order = "random",
-  startOrdinal = null,
+  order = "random",          // "random" | "doc"
+  startOrdinal = null,       // number | null (1-based)
   onOpenTOC,
+  onGoBack,                  // ← NEW: optional back handler
 }) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const isLandscape = width > height;
-  const isWeb = Platform.OS === "web";
+  const hideInfoPanel = Platform.OS !== "web" && isLandscape;
 
-  // Hide info panel only on native (iOS/Android) when landscape
-  const hideInfoPanel = !isWeb && isLandscape;
 
   const BORDER = isLandscape ? 8 : 16;
 
+  // Compute card size
   let CARD_W, CARD_H;
   if (!isLandscape) {
     CARD_W = Math.min(900, width * 0.9);
@@ -107,6 +107,7 @@ export default function FlipDrill({
         params.set("deck_id", String(deckId));
         params.set("n", typeof n === "string" ? n : String(n));
         if (order) params.set("order", order);
+        // Do NOT send start_ordinal – we jump locally
         const url = `${API_ROOT}/hand/?${params.toString()}`;
 
         if (url === lastURLRef.current) return;
@@ -200,18 +201,18 @@ export default function FlipDrill({
         isLandscape && { paddingTop: BORDER, paddingBottom: BORDER },
       ]}
     >
-      <View
-        style={[
-          styles.topBar,
-          isLandscape && [
-            styles.topBarFloat,
-            { top: insets.top + 4, paddingHorizontal: 12 },
-          ],
-        ]}
-      >
-        <Text style={styles.counter}>
-          Card {idx + 1}/{cards.length}
-        </Text>
+      {/* Top bar */}
+      <View style={styles.topBar}>
+        <View style={styles.leftGroup}>
+          {typeof onGoBack === "function" && (
+            <TouchableOpacity onPress={onGoBack} style={styles.backBtn}>
+              <Text style={styles.backTxt}>Back</Text>
+            </TouchableOpacity>
+          )}
+          <Text style={styles.counter}>
+            Card {idx + 1}/{cards.length}
+          </Text>
+        </View>
 
         <View style={{ flexDirection: "row", alignItems: "center" }}>
           {onOpenTOC && (
@@ -231,6 +232,7 @@ export default function FlipDrill({
         </View>
       </View>
 
+      {/* Card */}
       <Animated.View
         {...responder.panHandlers}
         style={[
@@ -297,9 +299,9 @@ export default function FlipDrill({
         />
       </Animated.View>
 
-      {/* Info panel — shown on web always; hidden on native landscape */}
+      {/* Info panel (hidden in landscape) */}
       {!hideInfoPanel && (
-        <View style={[styles.infoPanel, { width: CARD_W, marginBottom: 84 }]}>
+        <View style={[styles.infoPanel, { width: CARD_W }]}>
           <Text style={styles.infoLine}>
             {!!sectionName && <Text style={styles.infoKey}>Section: </Text>}
             <Text style={styles.infoVal}>{sectionName || "—"}</Text>
@@ -308,9 +310,7 @@ export default function FlipDrill({
           <Text style={styles.infoLine}>
             <Text style={styles.infoKey}>Page: </Text>
             <Text style={styles.infoVal}>{pageLabel || "—"}</Text>
-            {!!contextTag && (
-              <Text style={styles.infoVal}>   •   {contextTag}</Text>
-            )}
+            {!!contextTag && <Text style={styles.infoVal}>   •   {contextTag}</Text>}
           </Text>
 
           {showCtx && !!card.excerpt && (
@@ -319,6 +319,8 @@ export default function FlipDrill({
         </View>
       )}
 
+
+      {/* Controls */}
       <View style={[styles.buttons, { bottom: 34 + insets.bottom }]}>
         <Pressable style={styles.btn} onPress={prevCard}>
           <Text style={styles.btnTxt}>Prev</Text>

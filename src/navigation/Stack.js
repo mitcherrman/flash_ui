@@ -7,6 +7,7 @@ import GamePicker   from "../Screens/GamePicker";
 import Game1Screen  from "../Screens/Game1Screen";
 import Game2Screen  from "../Screens/Game2Screen";
 import TOCScreen    from "../Screens/TOCScreen";
+import GameMC from "../Screens/GameMC";
 
 const Stack = createNativeStackNavigator();
 
@@ -22,6 +23,7 @@ export default function RootStack() {
       <Stack.Screen name="Game1"  component={Game1Screen} />
       <Stack.Screen name="Game2"  component={Game2Screen} />
       <Stack.Screen name="TOC"    component={TOCScreen} options={{ title: "Contents" }} />
+      <Stack.Screen name="GameMC" component={GameMC} />
     </Stack.Navigator>
   );
 }

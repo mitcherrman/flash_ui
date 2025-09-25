@@ -24,6 +24,7 @@ export default function Game2Screen({ route, navigation }) {
             mode,
           })
         }
+        onGoBack={() => navigation.navigate("Picker", { deckId })}
       />
     </View>
   );

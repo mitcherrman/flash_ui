@@ -21,14 +21,18 @@ export default StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  
-  // Floats in landscape so it doesn't reduce available height
-  topBarFloat: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    zIndex: 20,
+  leftGroup: {
+    flexDirection: "row",
+    alignItems: "center",
   },
+  backBtn: {
+    backgroundColor: "#0ea5e9",
+    paddingHorizontal: SPACING.x2,
+    paddingVertical: SPACING.x1,
+    borderRadius: RADII.xl,
+    marginRight: SPACING.x2,
+  },
+  backTxt: { color: "white", fontWeight: "800" },
 
   counter: { fontSize: 20, color: COLORS.text, fontWeight: "700" },
   ctxToggle: { flexDirection: "row", alignItems: "center", marginLeft: SPACING.x2 },
@@ -83,21 +87,20 @@ export default StyleSheet.create({
     lineHeight: 36,
   },
 
-  // add/ensure these in the exported StyleSheet
   watermark: {
     position: "absolute",
-    top: 10,
-    left: 10,
-    width: 120,          // fixed size so it’s visible across devices
-    height: 90,
-    opacity: 0.1,        // subtle but visible
-    // Optional: tint the logo slightly so it shows on white cards
-    tintColor: "#0b325f",
-    zIndex: 0,
+    top: SPACING.x2,
+    left: SPACING.x2,
+    width: 120,
+    height: 80,
+    opacity: 0.08,
   },
   watermarkBack: {
-    transform: [{ scaleX: -1 }], // mirror across vertical axis (back side)
+    transform: [{ scaleX: -1 }], // mirrored on back
+    right: SPACING.x2,
+    left: undefined,
   },
+
   infoPanel: {
     marginTop: SPACING.x2,
     backgroundColor: COLORS.bg2,
@@ -105,17 +108,6 @@ export default StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
     padding: SPACING.x2,
-  },
-  // Floating info panel for landscape
-  infoOverlay: {
-    position: "absolute",
-    alignSelf: "center",
-    backgroundColor: "rgba(1,43,87,0.86)",
-    borderRadius: RADII.xl,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    padding: SPACING.x1 + 2,
-    zIndex: 15,
   },
   infoLine: { color: COLORS.text, fontSize: 16, marginBottom: SPACING.x1 },
   infoKey: { color: COLORS.gold, fontWeight: "800" },
