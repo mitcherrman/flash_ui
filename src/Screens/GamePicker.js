@@ -11,12 +11,25 @@ import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system";
 import { API_BASE } from "../config";
 import { deckToPrintableHTML, saveHTML } from "../utils/exportHTML";
+import { clearAllCache, delCache, deckHandKey, deckTocKey } from "../utils/cache";
+
 
 const API_ROOT = `${API_BASE}/api/flashcards`;
 
 export default function GamePicker({ route, navigation }) {
   const { deckId } = route.params || {};
   const [busy, setBusy] = useState(false);
+
+  async function clearDeckCache() {
+    await delCache(deckHandKey(deckId, "doc", "all"));
+    await delCache(deckTocKey(deckId));
+    alert("Cleared cache for this deck.");
+  }
+  async function clearAll() {
+    await clearAllCache();
+    alert("Cleared ALL cached decks/TOCs.");
+  }
+
 
   async function fetchCardsDocOrder(id) {
     const params = new URLSearchParams();
@@ -121,6 +134,21 @@ export default function GamePicker({ route, navigation }) {
           Download printable cards (HTML)
         </Text>
       </Pressable>
+
+      <Pressable
+        style={[styles.exportBtn, { backgroundColor: "#0B274A", marginTop: 8 }]}
+        onPress={clearDeckCache}
+      >
+        <Text style={styles.exportTxt}>Dev: Clear cache (this deck)</Text>
+      </Pressable>
+
+      <Pressable
+        style={[styles.exportBtn, { backgroundColor: "#0B274A", marginTop: 8 }]}
+        onPress={clearAll}
+      >
+        <Text style={styles.exportTxt}>Dev: Clear ALL cache</Text>
+      </Pressable>
+
 
       <Pressable
         style={styles.exportBtn}

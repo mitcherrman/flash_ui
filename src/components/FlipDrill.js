@@ -4,7 +4,7 @@
    • Toggle to show/hide excerpt
    • Shows source info: Section, Page, Context, Excerpt
    • TOC jump without reordering: keep list in doc order and set initial index locally
-   • Landscape: card fits fully with a slight border; UI floats over it
+   • Landscape (native): hide info panel so the card can fit with a small border
    • Watermark image on card faces (subtle opacity)
 */
 import React, { useState, useEffect, useRef, useMemo } from "react";
@@ -27,7 +27,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { API_BASE } from "../config";
-
+import { fetchWithCache, deckHandKey } from "../utils/cache";
 import styles from "../styles/components/FlipDrill.styles";
 
 const API_ROOT = `${API_BASE}/api/flashcards`;
@@ -40,14 +40,13 @@ export default function FlipDrill({
   order = "random",          // "random" | "doc"
   startOrdinal = null,       // number | null (1-based)
   onOpenTOC,
-  onGoBack,                  // ← NEW: optional back handler
+  onGoBack,                  // optional override for Back action
+  navigation,                // optional (if parent passes react-navigation prop)
 }) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const isLandscape = width > height;
   const hideInfoPanel = Platform.OS !== "web" && isLandscape;
-
-
   const BORDER = isLandscape ? 8 : 16;
 
   // Compute card size
@@ -81,6 +80,7 @@ export default function FlipDrill({
     return Number.isFinite(v) && v > 0 ? v : null;
   }, [startOrdinal]);
 
+  // flip animation
   useEffect(() => {
     Animated.timing(flipAnim, {
       toValue: flipped ? 180 : 0,
@@ -98,8 +98,7 @@ export default function FlipDrill({
     outputRange: ["180deg", "360deg"],
   });
 
-  const lastURLRef = useRef("");
-
+  // load cards (keeps doc order; we jump locally)
   useEffect(() => {
     (async () => {
       try {
@@ -107,18 +106,20 @@ export default function FlipDrill({
         params.set("deck_id", String(deckId));
         params.set("n", typeof n === "string" ? n : String(n));
         if (order) params.set("order", order);
-        // Do NOT send start_ordinal – we jump locally
         const url = `${API_ROOT}/hand/?${params.toString()}`;
 
-        if (url === lastURLRef.current) return;
-        lastURLRef.current = url;
-
-        const r = await fetch(url);
-        if (!r.ok) {
-          const txt = await r.text();
-          throw new Error(`HTTP ${r.status} • ${txt.slice(0, 140)}`);
-        }
-        const data = await r.json();
+        const data = await fetchWithCache({
+          key: deckHandKey(deckId, order || "random", typeof n === "string" ? n : String(n)),
+          ttlMs: 6 * 60 * 60 * 1000,
+          fetcher: async () => {
+            const r = await fetch(url);
+            if (!r.ok) {
+              const txt = await r.text();
+              throw new Error(`HTTP ${r.status} • ${txt.slice(0, 140)}`);
+            }
+            return r.json();
+          },
+        });
 
         setCards(data);
         const initial =
@@ -134,8 +135,9 @@ export default function FlipDrill({
         setErr(String(e));
       }
     })();
-  }, [deckId, n, order]);
+  }, [deckId, n, order, startOrdinalNum]);
 
+  // swipe navigation
   const responder = useMemo(
     () =>
       PanResponder.create({
@@ -161,6 +163,19 @@ export default function FlipDrill({
     Haptics.selectionAsync();
     setIdx((i) => (i - 1 + cards.length) % cards.length);
     setFlipped(false);
+  };
+
+  const handleBack = () => {
+    if (typeof onGoBack === "function") {
+      onGoBack();
+      return;
+    }
+    if (navigation?.reset) {
+      navigation.reset({
+        index: 0,
+        routes: [{ name: "Picker", params: { deckId } }],
+      });
+    }
   };
 
   const ellipsize = (s, limit = 260) => {
@@ -204,8 +219,8 @@ export default function FlipDrill({
       {/* Top bar */}
       <View style={styles.topBar}>
         <View style={styles.leftGroup}>
-          {typeof onGoBack === "function" && (
-            <TouchableOpacity onPress={onGoBack} style={styles.backBtn}>
+          {(onGoBack || navigation) && (
+            <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
               <Text style={styles.backTxt}>Back</Text>
             </TouchableOpacity>
           )}
@@ -299,7 +314,7 @@ export default function FlipDrill({
         />
       </Animated.View>
 
-      {/* Info panel (hidden in landscape) */}
+      {/* Info panel (hidden in native landscape) */}
       {!hideInfoPanel && (
         <View style={[styles.infoPanel, { width: CARD_W }]}>
           <Text style={styles.infoLine}>
@@ -318,7 +333,6 @@ export default function FlipDrill({
           )}
         </View>
       )}
-
 
       {/* Controls */}
       <View style={[styles.buttons, { bottom: 34 + insets.bottom }]}>

@@ -4,9 +4,24 @@ import { StyleSheet } from "react-native";
 export const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#003262", alignItems: "center", paddingTop: 18 },
   center: { flex: 1, backgroundColor: "#003262", alignItems: "center", justifyContent: "center" },
-  header: { color: "#E6ECF0", fontWeight: "800", marginBottom: 10 },
-  muted: { color: "#E6ECF0", marginTop: 8 },
-  error: { color: "#FDB515" },
+
+  topBar: {
+    width: "92%",
+    maxWidth: 900,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  topBtn: {
+    backgroundColor: "#FDB515",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 12,
+  },
+  topBtnTxt: { color: "#082F49", fontWeight: "900" },
+
+  header: { color: "#E6ECF0", fontWeight: "800" },
 
   question: {
     fontSize: 24,
@@ -38,6 +53,9 @@ export const s = StyleSheet.create({
     borderRadius: 10,
   },
   btnTxt: { color: "#082F49", fontWeight: "900" },
+
+  muted: { color: "#E6ECF0", marginTop: 8 },
+  error: { color: "#FDB515" },
 });
 
 export const stateStyles = StyleSheet.create({

@@ -14,6 +14,8 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { API_BASE } from "../config";
 import styles from "../styles/screens/TOCScreen.styles";
+import { fetchWithCache, deckTocKey } from "../utils/cache";
+
 
 export default function TOCScreen({ route, navigation }) {
   const { deckId, returnTo = "Game2", mode = "basic" } = route.params || {};
@@ -22,23 +24,29 @@ export default function TOCScreen({ route, navigation }) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        setLoading(true);
-        const r = await fetch(`${API_BASE}/api/flashcards/toc/?deck_id=${deckId}`);
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const data = await r.json();
-        if (alive) setItems(Array.isArray(data) ? data : []);
-      } catch (e) {
-        if (alive) setErr(String(e));
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => { alive = false; };
-  }, [deckId]);
+useEffect(() => {
+  let alive = true;
+  (async () => {
+    try {
+      setLoading(true);
+      const data = await fetchWithCache({
+        key: deckTocKey(deckId),
+        fetcher: async () => {
+          const r = await fetch(`${API_BASE}/api/flashcards/toc/?deck_id=${deckId}`);
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.json();
+        },
+      });
+      if (alive) setItems(Array.isArray(data) ? data : []);
+    } catch (e) {
+      if (alive) setErr(String(e));
+    } finally {
+      if (alive) setLoading(false);
+    }
+  })();
+  return () => { alive = false; };
+}, [deckId]);
+
 
   const filtered = useMemo(() => {
     if (!q.trim()) return items;

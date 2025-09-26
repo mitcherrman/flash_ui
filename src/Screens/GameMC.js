@@ -1,47 +1,80 @@
 // src/Screens/GameMC.js
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, Pressable, ActivityIndicator } from "react-native";
 import * as Haptics from "expo-haptics";
 import { API_BASE } from "../config";
 import CardShell from "../components/CardShell";
 import { pickDistractors, shuffle } from "../utils/PickDistractors";
+import { fetchWithCache, deckHandKey } from "../utils/cache";
 import { s, stateStyles } from "../styles/screens/GameMC.styles";
 
 const API_ROOT = `${API_BASE}/api/flashcards`;
 
 export default function GameMC({ route, navigation }) {
-  const { deckId, order = "doc" } = route.params || {};
+  const { deckId, order = "doc", startOrdinal = null } = route.params || {};
+
   const [cards, setCards] = useState([]);
   const [idx, setIdx] = useState(0);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+
   const [options, setOptions] = useState([]);
-  const [picked, setPicked] = useState(null);        // index of chosen option
+  const [picked, setPicked] = useState(null);      // index of chosen option
   const [correctIndex, setCorrectIndex] = useState(null);
 
-  const autoTimerRef = useRef(null);
+  const startOrdinalNum = useMemo(() => {
+    const v =
+      typeof startOrdinal === "number"
+        ? startOrdinal
+        : startOrdinal != null
+        ? parseInt(String(startOrdinal), 10)
+        : null;
+    return Number.isFinite(v) && v > 0 ? v : null;
+  }, [startOrdinal]);
+
+  function goToPicker() {
+    navigation.reset({
+      index: 0,
+      routes: [{ name: "Picker", params: { deckId } }],
+    });
+  }
 
   // load deck in doc order
   useEffect(() => {
-    (async () => {
-      try {
-        setLoading(true);
-        const params = new URLSearchParams();
-        params.set("deck_id", String(deckId));
-        params.set("n", "all");
-        params.set("order", order);
-        const r = await fetch(`${API_ROOT}/hand/?${params.toString()}`);
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const data = await r.json();
-        setCards(data);
-        setIdx(0);
-      } catch (e) {
-        setErr(String(e));
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [deckId, order]);
+  (async () => {
+    try {
+      setLoading(true);
+      const params = new URLSearchParams();
+      params.set("deck_id", String(deckId));
+      params.set("n", "all");
+      params.set("order", order);
+      const url = `${API_ROOT}/hand/?${params.toString()}`;
+
+      const data = await fetchWithCache({
+        key: deckHandKey(deckId, order, "all"),
+        fetcher: async () => {
+          const r = await fetch(url);
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.json();
+        },
+      });
+
+      setCards(data);
+      const initial =
+        order === "doc" &&
+        startOrdinalNum != null &&
+        startOrdinalNum >= 1 &&
+        startOrdinalNum <= data.length
+          ? startOrdinalNum - 1
+          : 0;
+      setIdx(initial);
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setLoading(false);
+    }
+  })();
+}, [deckId, order]);
 
   // build options when card changes
   useEffect(() => {
@@ -50,30 +83,26 @@ export default function GameMC({ route, navigation }) {
     const distractors = pickDistractors(card, cards, 3);
     const all = shuffle([card.back, ...distractors]);
     setOptions(all);
-    setCorrectIndex(all.findIndex(a => a === card.back));
+    setCorrectIndex(all.findIndex((a) => a === card.back));
     setPicked(null);
-
-    // clear any pending auto-advance when we move to a new card
-    if (autoTimerRef.current) {
-      clearTimeout(autoTimerRef.current);
-      autoTimerRef.current = null;
-    }
   }, [cards, idx]);
-
-  // cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (autoTimerRef.current) clearTimeout(autoTimerRef.current);
-    };
-  }, []);
 
   const next = () => {
     if (!cards.length) return;
-    if (autoTimerRef.current) {
-      clearTimeout(autoTimerRef.current);
-      autoTimerRef.current = null;
-    }
-    setIdx(i => (i + 1) % cards.length);
+    setIdx((i) => (i + 1) % cards.length);
+  };
+
+  const prev = () => {
+    if (!cards.length) return;
+    setIdx((i) => (i - 1 + cards.length) % cards.length);
+  };
+
+  const pick = (i) => {
+    if (picked != null) return;           // lock after first answer
+    setPicked(i);
+    Haptics.selectionAsync();
+    // Flash feedback briefly, then auto-advance regardless of correct/wrong
+    setTimeout(next, 700);
   };
 
   if (loading) {
@@ -94,28 +123,31 @@ export default function GameMC({ route, navigation }) {
 
   const card = cards[idx];
 
-  const pick = (i) => {
-    if (picked != null) return; // already answered
-    setPicked(i);
-
-    const ok = i === correctIndex;
-    Haptics.notificationAsync(
-      ok ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Error
-    );
-
-    // show the colored feedback briefly, then advance regardless of right/wrong
-    const delayMs = ok ? 650 : 900; // a touch longer when wrong
-    autoTimerRef.current = setTimeout(next, delayMs);
-  };
-
-  const CARD_W = 720;
-  const CARD_H = CARD_W * 0.6;
-
   return (
     <View style={s.container}>
-      <Text style={s.header}>Card {idx + 1}/{cards.length}</Text>
+      {/* Top bar */}
+      <View style={s.topBar}>
+        <Pressable onPress={goToPicker} style={s.topBtn}>
+          <Text style={s.topBtnTxt}>Back</Text>
+        </Pressable>
+        <Text style={s.header}>Card {idx + 1}/{cards.length}</Text>
+        <Pressable
+          onPress={() =>
+            navigation.navigate("TOC", {
+              deckId,
+              returnTo: "GameMC",
+              // when coming back, GameMC will read startOrdinal
+              // we keep order="doc" for stable numbering
+              startOrdinal: idx + 1,
+            })
+          }
+          style={[s.topBtn, { backgroundColor: "#0ea5e9" }]}
+        >
+          <Text style={[s.topBtnTxt, { color: "white" }]}>TOC</Text>
+        </Pressable>
+      </View>
 
-      <CardShell width={CARD_W} height={CARD_H} variant="front">
+      <CardShell width={720} height={720 * 0.6} variant="front">
         <Text style={s.question}>{card.front}</Text>
       </CardShell>
 
@@ -134,8 +166,8 @@ export default function GameMC({ route, navigation }) {
       </View>
 
       <View style={s.controls}>
-        <Pressable onPress={() => navigation.goBack()} style={s.btn}>
-          <Text style={s.btnTxt}>Back</Text>
+        <Pressable onPress={prev} style={s.btn}>
+          <Text style={s.btnTxt}>Previous</Text>
         </Pressable>
         <Pressable onPress={next} style={s.btn}>
           <Text style={s.btnTxt}>Next</Text>
