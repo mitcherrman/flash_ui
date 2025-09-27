@@ -44,6 +44,35 @@ export default StyleSheet.create({
   sliderLabel: { color: COLORS.text, marginBottom: SPACING.x1 },
   coverage: { color: "#a7f3d0", marginTop: 2 },
 
+  resumeCard: {
+    width: "90%",
+    backgroundColor: "#012B57",
+    borderWidth: 1,
+    borderColor: "#0C4A6E",
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 16,
+  },
+  resumeTitle: { color: "#FFCD00", fontWeight: "900", fontSize: 16 },
+  resumeSub: { color: "#E6ECF0", marginTop: 4 },
+  resumePrimary: {
+    backgroundColor: "#10b981",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  resumePrimaryTxt: { color: "#052e2b", fontWeight: "900" },
+  resumeHollow: {
+    borderWidth: 1,
+    borderColor: "#0C4A6E",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: "#0b1226",
+  },
+  resumeHollowTxt: { color: "#E6ECF0", fontWeight: "800" },
+
+
   allocRow: {
     flexDirection: "row",
     alignItems: "center",

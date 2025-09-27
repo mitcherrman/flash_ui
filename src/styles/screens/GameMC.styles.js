@@ -2,64 +2,132 @@
 import { StyleSheet } from "react-native";
 
 export const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#003262", alignItems: "center", paddingTop: 18 },
-  center: { flex: 1, backgroundColor: "#003262", alignItems: "center", justifyContent: "center" },
+  container: { flex: 1, backgroundColor: "#003262", paddingHorizontal: 12, paddingTop: 10 },
+
+  center: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#003262",
+  },
+  muted: { color: "#E6ECF0", marginTop: 10, fontSize: 16 },
+  error: { color: "#FFCDD2", fontSize: 16 },
 
   topBar: {
-    width: "92%",
-    maxWidth: 900,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  header: { color: "#E6ECF0", fontWeight: "900", fontSize: 18 },
+  topBtn: {
+    backgroundColor: "#0B3D91",
+    borderWidth: 1,
+    borderColor: "#0C4A6E",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  topBtnTxt: { color: "#FFCD00", fontWeight: "800" },
+
+  // Mode bar
+  modeBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 10,
   },
-  topBtn: {
-    backgroundColor: "#FDB515",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+  modeToggleWrap: {
+    flexDirection: "row",
+    backgroundColor: "#012B57",
     borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#0C4A6E",
+    overflow: "hidden",
   },
-  topBtnTxt: { color: "#082F49", fontWeight: "900" },
+  modeToggleBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  modeToggleActive: {
+    backgroundColor: "#0ea5e9",
+  },
+  modeToggleTxt: {
+    color: "#E6ECF0",
+    fontWeight: "800",
+  },
+  modeToggleTxtActive: {
+    color: "white",
+  },
 
-  header: { color: "#E6ECF0", fontWeight: "800" },
+  counterRow: {
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "center",
+  },
+  counterPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  counterRight: { backgroundColor: "#10b981" },
+  counterWrong: { backgroundColor: "#ef4444" },
+  counterTxt: { color: "white", fontWeight: "900" },
+
+  counterPillMuted: {
+    backgroundColor: "#0B274A",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#0C4A6E",
+  },
+  counterTxtMuted: { color: "#A7B3C9", fontWeight: "800" },
 
   question: {
-    fontSize: 24,
-    lineHeight: 30,
-    fontWeight: "800",
     color: "#0f172a",
+    fontWeight: "900",
+    fontSize: 22,
     textAlign: "center",
   },
 
   opts: {
-    width: "92%",
-    maxWidth: 720,
     marginTop: 14,
     gap: 10,
   },
   opt: {
+    backgroundColor: "#0b1226",
+    borderWidth: 2,
+    borderColor: "#0C4A6E",
+    borderRadius: 12,
     paddingVertical: 12,
     paddingHorizontal: 14,
-    borderRadius: 12,
-    borderWidth: 2,
   },
-  optText: { color: "#0f172a", fontWeight: "800", textAlign: "center" },
+  optText: {
+    color: "#E6ECF0",
+    fontSize: 16,
+    fontWeight: "700",
+    textAlign: "center",
+  },
 
-  controls: { flexDirection: "row", marginTop: 16, gap: 10 },
+  controls: {
+    marginTop: 14,
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 12,
+  },
   btn: {
     backgroundColor: "#FDB515",
-    paddingHorizontal: 20,
+    paddingHorizontal: 18,
     paddingVertical: 10,
     borderRadius: 10,
   },
   btnTxt: { color: "#082F49", fontWeight: "900" },
-
-  muted: { color: "#E6ECF0", marginTop: 8 },
-  error: { color: "#FDB515" },
 });
 
+// Option state colors
 export const stateStyles = StyleSheet.create({
-  idle: { backgroundColor: "#FFFFFF", borderColor: "#0C4A6E" },
-  correct: { backgroundColor: "#22c55e", borderColor: "#16a34a" },
-  wrong: { backgroundColor: "#ef4444", borderColor: "#b91c1c" },
+  idle: { borderColor: "#0C4A6E" },
+  correct: { borderColor: "#22c55e", backgroundColor: "rgba(34,197,94,0.15)" },
+  wrong: { borderColor: "#ef4444", backgroundColor: "rgba(239,68,68,0.15)" },
 });

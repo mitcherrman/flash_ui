@@ -9,7 +9,8 @@ import * as DocumentPicker from "expo-document-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { API_BASE } from "../config";
 
-// at top with other imports
+import { loadLastDeck, clearCache } from "../utils/cache";
+
 import styles from "../styles/screens/UploadScreen.styles";
 
 
@@ -76,6 +77,19 @@ export default function UploadScreen({ navigation }) {
     }
   }
 
+  const [cached, setCached] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const meta = await loadLastDeck();
+      if (alive) setCached(meta);
+    })();
+    return () => { alive = false; };
+  }, []);
+
+
+
   useEffect(() => {
     if (!stats?.per_section_allocation) return;
     const total = cardsWanted || stats.recommended_cards || 12;
@@ -101,6 +115,17 @@ export default function UploadScreen({ navigation }) {
     }));
     setAllocs(next);
   }, [cardsWanted]);
+
+  function resumeCached() {
+    if (!cached?.deckId) return;
+    navigation.navigate("Picker", { deckId: cached.deckId });
+  }
+
+  async function discardCached() {
+    await clearCache();
+    setCached(null);
+  }
+
 
   function setSectionCount(index, val) {
     const n = Math.max(0, Math.min(30, parseInt(val || "0", 10)));
@@ -175,6 +200,25 @@ export default function UploadScreen({ navigation }) {
       <Text style={styles.subtle}>Upload a PDF.</Text>
 
       <View style={{ height: 16 }} />
+
+          {cached && (
+            <View style={styles.resumeCard}>
+              <Text style={styles.resumeTitle}>Resume last deck?</Text>
+              <Text style={styles.resumeSub}>
+                Deck #{cached.deckId}
+                {cached.cardsCount != null ? ` • ${cached.cardsCount} cards` : ""}
+              </Text>
+                <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
+                <Pressable style={styles.resumePrimary} onPress={resumeCached}>
+                  <Text style={styles.resumePrimaryTxt}>Use cached</Text>
+                </Pressable>
+                <Pressable style={styles.resumeHollow} onPress={discardCached}>
+                  <Text style={styles.resumeHollowTxt}>Discard</Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
+
 
       <Button title="Choose PDF" onPress={pick} color="#3b82f6" />
 

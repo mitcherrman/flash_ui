@@ -19,8 +19,13 @@ export default function GameMC({ route, navigation }) {
   const [err, setErr] = useState("");
 
   const [options, setOptions] = useState([]);
-  const [picked, setPicked] = useState(null);      // index of chosen option
+  const [picked, setPicked] = useState(null); // index of chosen option
   const [correctIndex, setCorrectIndex] = useState(null);
+
+  // Modes: "normal" (no scoring), "endless" (track right/wrong counters)
+  const [gameMode, setGameMode] = useState("normal");
+  const [rightCount, setRightCount] = useState(0);
+  const [wrongCount, setWrongCount] = useState(0);
 
   const startOrdinalNum = useMemo(() => {
     const v =
@@ -41,40 +46,44 @@ export default function GameMC({ route, navigation }) {
 
   // load deck in doc order
   useEffect(() => {
-  (async () => {
-    try {
-      setLoading(true);
-      const params = new URLSearchParams();
-      params.set("deck_id", String(deckId));
-      params.set("n", "all");
-      params.set("order", order);
-      const url = `${API_ROOT}/hand/?${params.toString()}`;
+    (async () => {
+      try {
+        setLoading(true);
+        const params = new URLSearchParams();
+        params.set("deck_id", String(deckId));
+        params.set("n", "all");
+        params.set("order", order);
+        const url = `${API_ROOT}/hand/?${params.toString()}`;
 
-      const data = await fetchWithCache({
-        key: deckHandKey(deckId, order, "all"),
-        fetcher: async () => {
-          const r = await fetch(url);
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          return r.json();
-        },
-      });
+        const data = await fetchWithCache({
+          key: deckHandKey(deckId, order, "all"),
+          fetcher: async () => {
+            const r = await fetch(url);
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.json();
+          },
+        });
 
-      setCards(data);
-      const initial =
-        order === "doc" &&
-        startOrdinalNum != null &&
-        startOrdinalNum >= 1 &&
-        startOrdinalNum <= data.length
-          ? startOrdinalNum - 1
-          : 0;
-      setIdx(initial);
-    } catch (e) {
-      setErr(String(e));
-    } finally {
-      setLoading(false);
-    }
-  })();
-}, [deckId, order]);
+        setCards(data);
+        const initial =
+          order === "doc" &&
+          startOrdinalNum != null &&
+          startOrdinalNum >= 1 &&
+          startOrdinalNum <= data.length
+            ? startOrdinalNum - 1
+            : 0;
+        setIdx(initial);
+
+        // reset scoring when loading a new deck / jumping
+        setRightCount(0);
+        setWrongCount(0);
+      } catch (e) {
+        setErr(String(e));
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [deckId, order, startOrdinalNum]);
 
   // build options when card changes
   useEffect(() => {
@@ -98,11 +107,29 @@ export default function GameMC({ route, navigation }) {
   };
 
   const pick = (i) => {
-    if (picked != null) return;           // lock after first answer
+    if (picked != null) return; // lock after first answer
     setPicked(i);
     Haptics.selectionAsync();
-    // Flash feedback briefly, then auto-advance regardless of correct/wrong
+
+    // Endless mode: update counters
+    if (gameMode === "endless") {
+      if (i === correctIndex) setRightCount((n) => n + 1);
+      else setWrongCount((n) => n + 1);
+    }
+
+    // brief feedback then advance
     setTimeout(next, 700);
+  };
+
+  const total = cards.length;
+
+  const switchMode = (mode) => {
+    if (mode === gameMode) return;
+    setGameMode(mode);
+    setPicked(null);
+    // Reset counters when switching into/out of endless
+    setRightCount(0);
+    setWrongCount(0);
   };
 
   if (loading) {
@@ -125,19 +152,21 @@ export default function GameMC({ route, navigation }) {
 
   return (
     <View style={s.container}>
-      {/* Top bar */}
+      {/* Top row: Back • Card counter • TOC */}
       <View style={s.topBar}>
         <Pressable onPress={goToPicker} style={s.topBtn}>
           <Text style={s.topBtnTxt}>Back</Text>
         </Pressable>
-        <Text style={s.header}>Card {idx + 1}/{cards.length}</Text>
+
+        <Text style={s.header}>
+          Card {idx + 1}/{total}
+        </Text>
+
         <Pressable
           onPress={() =>
             navigation.navigate("TOC", {
               deckId,
               returnTo: "GameMC",
-              // when coming back, GameMC will read startOrdinal
-              // we keep order="doc" for stable numbering
               startOrdinal: idx + 1,
             })
           }
@@ -145,6 +174,49 @@ export default function GameMC({ route, navigation }) {
         >
           <Text style={[s.topBtnTxt, { color: "white" }]}>TOC</Text>
         </Pressable>
+      </View>
+
+      {/* Mode toggle + (Endless) counters */}
+      <View style={s.modeBar}>
+        <View style={s.modeToggleWrap}>
+          <Pressable
+            onPress={() => switchMode("normal")}
+            style={[s.modeToggleBtn, gameMode === "normal" && s.modeToggleActive]}
+          >
+            <Text
+              style={[s.modeToggleTxt, gameMode === "normal" && s.modeToggleTxtActive]}
+            >
+              Normal
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => switchMode("endless")}
+            style={[s.modeToggleBtn, gameMode === "endless" && s.modeToggleActive]}
+          >
+            <Text
+              style={[s.modeToggleTxt, gameMode === "endless" && s.modeToggleTxtActive]}
+            >
+              Endless
+            </Text>
+          </Pressable>
+        </View>
+
+        {gameMode === "endless" ? (
+          <View style={s.counterRow}>
+            <View style={[s.counterPill, s.counterRight]}>
+              <Text style={s.counterTxt}>Right: {rightCount}</Text>
+            </View>
+            <View style={[s.counterPill, s.counterWrong]}>
+              <Text style={s.counterTxt}>Wrong: {wrongCount}</Text>
+            </View>
+          </View>
+        ) : (
+          <View style={s.counterRow}>
+            <View style={s.counterPillMuted}>
+              <Text style={s.counterTxtMuted}>Normal mode</Text>
+            </View>
+          </View>
+        )}
       </View>
 
       <CardShell width={720} height={720 * 0.6} variant="front">

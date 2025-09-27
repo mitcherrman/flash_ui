@@ -12,6 +12,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { Animated } from "react-native";
 import { API_BASE } from "../config";
+import { saveLastDeck } from "../utils/cache";
 
 import styles from "../styles/screens/BuildScreen.styles";
 
@@ -92,10 +93,19 @@ export default function BuildScreen({ route, navigation }) {
           );
         }
 
+        // Save simple deck meta so we can offer "Resume last deck" on Upload
+        await saveLastDeck({
+          deckId: json.deck_id,
+          name: name.replace(/\.pdf$/i, ""),
+          cardsCount: json.cards_created ?? null,
+        });
+
+        // Go to game picker with the new deck
         navigation.reset({
           index: 0,
           routes: [{ name: "Picker", params: { deckId: json.deck_id } }],
         });
+
       } catch (err) {
         setErrMsg(err?.message ?? String(err));
         setPhase("error");
