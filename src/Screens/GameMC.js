@@ -85,14 +85,50 @@ export default function GameMC({ route, navigation }) {
     })();
   }, [deckId, order, startOrdinalNum]);
 
-  // build options when card changes
+  // helper: sanitize strings
+  const _norm = (s) => (String(s || "").trim().replace(/\s+/g, " "));
+
+  // Build options when card changes:
+  // 1) use server-provided LLM distractors when present
+  // 2) top up with pickDistractors (cross-card) to reach 3
   useEffect(() => {
     if (!cards.length) return;
     const card = cards[idx];
-    const distractors = pickDistractors(card, cards, 3);
-    const all = shuffle([card.back, ...distractors]);
+    const correct = _norm(card.back);
+
+    // 1) Prefer LLM-authored distractors (card.distractors)
+    let d = Array.isArray(card?.distractors) ? card.distractors.map(_norm).filter(Boolean) : [];
+
+    // Remove duplicates and any equal to the correct answer (case-insensitive)
+    const seen = new Set();
+    d = d.filter((x) => {
+      const key = x.toLowerCase();
+      if (key === correct.toLowerCase()) return false;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    // 2) Top up if fewer than 3 using your existing pool-based picker
+    if (d.length < 3) {
+      const needed = 3 - d.length;
+      // oversample from pool, then filter collisions
+      const pool = pickDistractors(card, cards, Math.max(needed * 2, 3));
+      for (const cand of pool) {
+        const c = _norm(cand);
+        const key = c.toLowerCase();
+        if (!c) continue;
+        if (key === correct.toLowerCase()) continue;
+        if (seen.has(key)) continue;
+        d.push(c);
+        seen.add(key);
+        if (d.length >= 3) break;
+      }
+    }
+
+    const all = shuffle([correct, ...d.slice(0, 3)]);
     setOptions(all);
-    setCorrectIndex(all.findIndex((a) => a === card.back));
+    setCorrectIndex(all.findIndex((a) => _norm(a).toLowerCase() === correct.toLowerCase()));
     setPicked(null);
   }, [cards, idx]);
 
@@ -127,7 +163,6 @@ export default function GameMC({ route, navigation }) {
     if (mode === gameMode) return;
     setGameMode(mode);
     setPicked(null);
-    // Reset counters when switching into/out of endless
     setRightCount(0);
     setWrongCount(0);
   };
