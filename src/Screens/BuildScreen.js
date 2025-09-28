@@ -6,16 +6,20 @@ import {
   Platform,
   ActivityIndicator,
   Pressable,
-  StyleSheet,
   Alert,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Animated } from "react-native";
 import { API_BASE } from "../config";
 import { saveLastDeck } from "../utils/cache";
-
 import styles from "../styles/screens/BuildScreen.styles";
 
+function formatMs(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(s / 60);
+  const ss = String(s % 60).padStart(2, "0");
+  return `${m}:${ss}`;
+}
 
 export default function BuildScreen({ route, navigation }) {
   const { file, cardsWanted = 12, allocations = [] } = route.params || {};
@@ -24,11 +28,13 @@ export default function BuildScreen({ route, navigation }) {
   const [errMsg, setErrMsg] = useState("");
   const [filename, setFilename] = useState(file?.name ?? "document.pdf");
 
+  // stopwatch
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const t0Ref = useRef(0);
+  const timerRef = useRef(null);
+
   const onHome = () => {
-    navigation.reset({
-      index: 0,
-      routes: [{ name: "Upload" }],
-    });
+    navigation.reset({ index: 0, routes: [{ name: "Upload" }] });
   };
 
   // pulsing emoji (cute loader)
@@ -67,6 +73,13 @@ export default function BuildScreen({ route, navigation }) {
           fd.append("allocations", JSON.stringify(allocations));
         }
 
+        // start stopwatch
+        t0Ref.current = Date.now();
+        clearInterval(timerRef.current);
+        timerRef.current = setInterval(() => {
+          setElapsedMs(Date.now() - t0Ref.current);
+        }, 250);
+
         setPhase("upload");
         const url = `${API_BASE}/api/flashcards/generate/`;
         const res = await fetch(url, { method: "POST", body: fd });
@@ -85,32 +98,35 @@ export default function BuildScreen({ route, navigation }) {
         setPhase("build");
         const json = await res.json();
 
+        // stop stopwatch
+        const buildMs = Date.now() - t0Ref.current;
+        clearInterval(timerRef.current);
+
         if (Array.isArray(json.warnings) && json.warnings.length) {
-          Alert.alert(
-            "Some sections had less material",
-            json.warnings.join("\n\n"),
-            [{ text: "OK" }],
-          );
+          Alert.alert("Some sections had less material", json.warnings.join("\n\n"), [{ text: "OK" }]);
         }
 
-        // Save simple deck meta so we can offer "Resume last deck" on Upload
+        // cache deck meta incl. build time
         await saveLastDeck({
           deckId: json.deck_id,
           name: name.replace(/\.pdf$/i, ""),
           cardsCount: json.cards_created ?? null,
+          buildMs,
         });
 
-        // Go to game picker with the new deck
+        // go to game picker (also pass buildMs so we can show it immediately)
         navigation.reset({
           index: 0,
-          routes: [{ name: "Picker", params: { deckId: json.deck_id } }],
+          routes: [{ name: "Picker", params: { deckId: json.deck_id, buildMs } }],
         });
-
       } catch (err) {
+        clearInterval(timerRef.current);
         setErrMsg(err?.message ?? String(err));
         setPhase("error");
       }
     })();
+
+    return () => clearInterval(timerRef.current);
   }, []);
 
   const headline =
@@ -122,10 +138,7 @@ export default function BuildScreen({ route, navigation }) {
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={["#032e5d", "#003262"]}
-        style={styles.topGrad}
-      />
+      <LinearGradient colors={["#032e5d", "#003262"]} style={styles.topGrad} />
 
       <Text style={styles.title}>Flashcard Builder</Text>
       <Text style={styles.subtitle}>{headline}</Text>
@@ -134,30 +147,21 @@ export default function BuildScreen({ route, navigation }) {
         {phase !== "error" ? (
           <>
             <ActivityIndicator size="large" color="#FDB515" />
-            <Text style={styles.cardTitle} numberOfLines={2}>
-              {filename}
-            </Text>
+            <Text style={styles.cardTitle} numberOfLines={2}>{filename}</Text>
 
             <View style={styles.progressRow}>
-              <View
-                style={[
-                  styles.progressDot,
-                  phase === "upload" ? styles.dotActive : styles.dotDone,
-                ]}
-              />
+              <View style={[styles.progressDot, phase === "upload" ? styles.dotActive : styles.dotDone]} />
               <Text style={styles.progressLabel}>Upload</Text>
-              <View
-                style={[
-                  styles.progressDot,
-                  phase === "upload" ? styles.dotIdle : styles.dotActive,
-                ]}
-              />
+              <View style={[styles.progressDot, phase === "upload" ? styles.dotIdle : styles.dotActive]} />
               <Text style={styles.progressLabel}>Generate</Text>
             </View>
 
-            <Text style={styles.hint}>
-              This can take a moment for larger PDFs.
+            {/* stopwatch display */}
+            <Text style={{ color:"#93c5fd", fontWeight:"800", marginTop: 8 }}>
+              Elapsed: {formatMs(elapsedMs)}
             </Text>
+
+            <Text style={styles.hint}>This can take a moment for larger PDFs.</Text>
 
             <View style={{ height: 8 }} />
             <Animated.Text

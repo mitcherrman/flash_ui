@@ -53,4 +53,40 @@ export default StyleSheet.create({
     backgroundColor: COLORS.bg2,
   },
   tocTxt: { color: COLORS.text, fontWeight: "800" },
+
+  // Secondary button (download HTML)
+  secondaryBtn: {
+    marginTop: SPACING.x2,
+    borderColor: COLORS.border,
+    borderWidth: 2,
+    paddingHorizontal: SPACING.x2 + 2,
+    paddingVertical: SPACING.x1 + 2,
+    borderRadius: RADII.xl,
+    backgroundColor: COLORS.bg2,
+  },
+  secondaryTxt: { color: COLORS.text, fontWeight: "800" },
+
+  // Export / share PDF
+  exportBtn: {
+    marginTop: SPACING.x2,
+    borderColor: COLORS.border,
+    borderWidth: 2,
+    paddingHorizontal: SPACING.x2 + 2,
+    paddingVertical: SPACING.x1 + 4,
+    borderRadius: RADII.xl,
+    backgroundColor: "#0B3D91",
+  },
+  exportTxt: { color: COLORS.gold, fontWeight: "900" },
+
+  // Dev cache buttons
+  devBtn: {
+    marginTop: SPACING.x2 - 4,
+    borderColor: COLORS.border,
+    borderWidth: 2,
+    paddingHorizontal: SPACING.x2 + 2,
+    paddingVertical: SPACING.x1 + 2,
+    borderRadius: RADII.xl,
+    backgroundColor: "#0B274A",
+  },
+  devBtnTxt: { color: COLORS.gold, fontWeight: "900" },
 });

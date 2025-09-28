@@ -13,6 +13,12 @@ import { loadLastDeck, clearCache } from "../utils/cache";
 
 import styles from "../styles/screens/UploadScreen.styles";
 
+function formatMs(ms) {
+  const s = Math.max(0, Math.floor((ms || 0) / 1000));
+  const m = Math.floor(s / 60);
+  const ss = String(s % 60).padStart(2, "0");
+  return `${m}:${ss}`;
+}
 
 export default function UploadScreen({ navigation }) {
   const [file, setFile]               = useState(null);

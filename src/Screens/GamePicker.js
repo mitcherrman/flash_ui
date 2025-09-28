@@ -4,32 +4,58 @@
 // + Export: web → HTML download (printable cut-out cards)
 //           native → PDF share via expo-print
 
-import React, { useState } from "react";
-import { View, Text, Pressable, StyleSheet, ScrollView, Platform, Alert } from "react-native";
+import React, { useEffect, useState } from "react";
+import { View, Text, Pressable, ScrollView, Platform, Alert } from "react-native";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system";
 import { API_BASE } from "../config";
 import { deckToPrintableHTML, saveHTML } from "../utils/exportHTML";
-import { clearAllCache, delCache, deckHandKey, deckTocKey } from "../utils/cache";
-
+import {
+  clearAllCache,
+  delCache,
+  deckHandKey,
+  deckTocKey,
+  loadLastDeck,
+} from "../utils/cache";
+import styles from "../styles/screens/GamePicker.styles";
 
 const API_ROOT = `${API_BASE}/api/flashcards`;
 
+function formatMs(ms) {
+  const s = Math.max(0, Math.floor((ms || 0) / 1000));
+  const m = Math.floor(s / 60);
+  const ss = String(s % 60).padStart(2, "0");
+  return `${m}:${ss}`;
+}
+
 export default function GamePicker({ route, navigation }) {
-  const { deckId } = route.params || {};
+  const { deckId, buildMs: buildMsFromNav } = route.params || {};
   const [busy, setBusy] = useState(false);
+  const [buildMs, setBuildMs] = useState(
+    typeof buildMsFromNav === "number" ? buildMsFromNav : null
+  );
+
+  // If we came here from a cold start (resume), read cached meta to get build time
+  useEffect(() => {
+    (async () => {
+      if (buildMs != null) return;
+      const meta = await loadLastDeck();
+      if (meta?.deckId === deckId && typeof meta.buildMs === "number") {
+        setBuildMs(meta.buildMs);
+      }
+    })();
+  }, [deckId, buildMs]);
 
   async function clearDeckCache() {
     await delCache(deckHandKey(deckId, "doc", "all"));
     await delCache(deckTocKey(deckId));
-    alert("Cleared cache for this deck.");
+    Alert.alert("Cache", "Cleared cache for this deck.");
   }
   async function clearAll() {
     await clearAllCache();
-    alert("Cleared ALL cached decks/TOCs.");
+    Alert.alert("Cache", "Cleared ALL cached decks/TOCs.");
   }
-
 
   async function fetchCardsDocOrder(id) {
     const params = new URLSearchParams();
@@ -49,7 +75,7 @@ export default function GamePicker({ route, navigation }) {
       await saveHTML({ html, filename: `deck-${deckId}-print.html` });
     } catch (e) {
       console.error(e);
-      alert(String(e));
+      Alert.alert("Export failed", String(e));
     }
   }
 
@@ -98,7 +124,10 @@ export default function GamePicker({ route, navigation }) {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.inner}>
       <Text style={styles.h1}>Choose a Mode</Text>
-      <Text style={styles.subtle}>Deck #{deckId}</Text>
+      <Text style={styles.subtle}>
+        Deck #{deckId}
+        {buildMs != null ? ` • built in ${formatMs(buildMs)}` : ""}
+      </Text>
 
       <View style={styles.grid}>
         <Card
@@ -109,18 +138,24 @@ export default function GamePicker({ route, navigation }) {
         <Card
           title="Game 2 — Mastery"
           subtitle="Short-answer drill"
-          onPress={() => navigation.navigate("Game2", { deckId, mode: "basic", order: "doc" })}
+          onPress={() =>
+            navigation.navigate("Game2", { deckId, mode: "basic", order: "doc" })
+          }
         />
         <Card
           title="Game 3 — Multiple Choice"
           subtitle="Answer with distractors"
-          onPress={() => navigation.navigate("GameMC", { deckId, mode: "mc", order: "doc" })}
+          onPress={() =>
+            navigation.navigate("GameMC", { deckId, mode: "mc", order: "doc" })
+          }
         />
       </View>
 
       <Pressable
         style={styles.tocLink}
-        onPress={() => navigation.navigate("TOC", { deckId, returnTo: "Game2", mode: "basic" })}
+        onPress={() =>
+          navigation.navigate("TOC", { deckId, returnTo: "Game2", mode: "basic" })
+        }
       >
         <Text style={styles.tocTxt}>Open Table of Contents</Text>
       </Pressable>
@@ -130,31 +165,18 @@ export default function GamePicker({ route, navigation }) {
         onPress={downloadPrintable}
         disabled={busy}
       >
-        <Text style={styles.secondaryTxt}>
-          Download printable cards (HTML)
-        </Text>
+        <Text style={styles.secondaryTxt}>Download printable cards (HTML)</Text>
       </Pressable>
 
-      <Pressable
-        style={[styles.exportBtn, { backgroundColor: "#0B274A", marginTop: 8 }]}
-        onPress={clearDeckCache}
-      >
-        <Text style={styles.exportTxt}>Dev: Clear cache (this deck)</Text>
+      <Pressable style={styles.devBtn} onPress={clearDeckCache}>
+        <Text style={styles.devBtnTxt}>Dev: Clear cache (this deck)</Text>
       </Pressable>
 
-      <Pressable
-        style={[styles.exportBtn, { backgroundColor: "#0B274A", marginTop: 8 }]}
-        onPress={clearAll}
-      >
-        <Text style={styles.exportTxt}>Dev: Clear ALL cache</Text>
+      <Pressable style={styles.devBtn} onPress={clearAll}>
+        <Text style={styles.devBtnTxt}>Dev: Clear ALL cache</Text>
       </Pressable>
 
-
-      <Pressable
-        style={styles.exportBtn}
-        onPress={exportDeck}
-        disabled={busy}
-      >
+      <Pressable style={styles.exportBtn} onPress={exportDeck} disabled={busy}>
         <Text style={styles.exportTxt}>
           {busy ? "Preparing export…" : "Export / Share PDF"}
         </Text>
@@ -162,75 +184,3 @@ export default function GamePicker({ route, navigation }) {
     </ScrollView>
   );
 }
-
-/* ---- Styles (local to this screen) ---- */
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#003262" },
-  inner: { paddingTop: 48, paddingBottom: 36, alignItems: "center" },
-  h1: { color: "#E6ECF0", fontSize: 28, fontWeight: "900" },
-  subtle: { color: "#A7B3C9", marginTop: 6 },
-
-  grid: {
-    marginTop: 22,
-    width: "92%",
-    maxWidth: 900,
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 16,
-    justifyContent: "center",
-  },
-
-  card: {
-    flexBasis: "46%",
-    minWidth: 320,
-    backgroundColor: "#0B274A",
-    borderColor: "#0C4A6E",
-    borderWidth: 2,
-    borderRadius: 18,
-    padding: 16,
-  },
-  cardTitle: { color: "#FFCD00", fontWeight: "900", fontSize: 18 },
-  cardSub: { color: "#E6ECF0", marginTop: 6 },
-  cardBtn: {
-    alignSelf: "flex-start",
-    marginTop: 14,
-    backgroundColor: "#FDB515",
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderRadius: 10,
-  },
-  cardBtnTxt: { color: "#082F49", fontWeight: "900" },
-
-  tocLink: {
-    marginTop: 20,
-    borderColor: "#0C4A6E",
-    borderWidth: 2,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: "#012B57",
-  },
-  tocTxt: { color: "#E6ECF0", fontWeight: "800" },
-
-  secondaryBtn: {
-    marginTop: 16,
-    borderColor: "#0C4A6E",
-    borderWidth: 2,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: "#012B57",
-  },
-  secondaryTxt: { color: "#E6ECF0", fontWeight: "800" },
-
-  exportBtn: {
-    marginTop: 12,
-    borderColor: "#0C4A6E",
-    borderWidth: 2,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderRadius: 10,
-    backgroundColor: "#0B3D91",
-  },
-  exportTxt: { color: "#FFCD00", fontWeight: "900" },
-});
