@@ -11,7 +11,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { Animated } from "react-native";
 import { API_BASE } from "../config";
-import { saveLastDeck } from "../utils/cache";
+import { saveLastDeck, saveTemplate } from "../utils/cache"; // ← add saveTemplate
 import styles from "../styles/screens/BuildScreen.styles";
 
 function formatMs(ms) {
@@ -99,20 +99,30 @@ export default function BuildScreen({ route, navigation }) {
         const json = await res.json();
 
         // stop stopwatch
-        const buildMs = Date.now() - t0Ref.current;
+        const buildMsMeasured = Date.now() - t0Ref.current;
         clearInterval(timerRef.current);
 
         if (Array.isArray(json.warnings) && json.warnings.length) {
           Alert.alert("Some sections had less material", json.warnings.join("\n\n"), [{ text: "OK" }]);
         }
 
-        // cache deck meta incl. build time
+        // Prefer server total_ms if available; else use measured time
+        const serverTotal = json?.metrics?.total_ms;
+        const buildMs = typeof serverTotal === "number" ? serverTotal : buildMsMeasured;
+
+        // cache deck meta incl. build time + metrics
         await saveLastDeck({
           deckId: json.deck_id,
           name: name.replace(/\.pdf$/i, ""),
           cardsCount: json.cards_created ?? null,
           buildMs,
+          metrics: json?.metrics ?? null,
         });
+
+        // cache the compact study template for review
+        if (json?.template) {
+          await saveTemplate(json.deck_id, json.template);
+        }
 
         // go to game picker (also pass buildMs so we can show it immediately)
         navigation.reset({
