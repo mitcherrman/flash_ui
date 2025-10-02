@@ -11,7 +11,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { Animated } from "react-native";
 import { API_BASE } from "../config";
-import { saveLastDeck, saveTemplate } from "../utils/cache"; // ← add saveTemplate
+import { saveLastDeck, saveTemplate } from "../utils/cache";
 import styles from "../styles/screens/BuildScreen.styles";
 
 function formatMs(ms) {
@@ -24,11 +24,10 @@ function formatMs(ms) {
 export default function BuildScreen({ route, navigation }) {
   const { file, cardsWanted = 12, allocations = [] } = route.params || {};
 
-  const [phase, setPhase] = useState("upload"); // "upload" | "build" | "error"
+  const [phase, setPhase] = useState("upload");
   const [errMsg, setErrMsg] = useState("");
   const [filename, setFilename] = useState(file?.name ?? "document.pdf");
 
-  // stopwatch
   const [elapsedMs, setElapsedMs] = useState(0);
   const t0Ref = useRef(0);
   const timerRef = useRef(null);
@@ -37,7 +36,6 @@ export default function BuildScreen({ route, navigation }) {
     navigation.reset({ index: 0, routes: [{ name: "Upload" }] });
   };
 
-  // pulsing emoji (cute loader)
   const pulse = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     const loop = Animated.loop(
@@ -73,7 +71,6 @@ export default function BuildScreen({ route, navigation }) {
           fd.append("allocations", JSON.stringify(allocations));
         }
 
-        // start stopwatch
         t0Ref.current = Date.now();
         clearInterval(timerRef.current);
         timerRef.current = setInterval(() => {
@@ -98,7 +95,6 @@ export default function BuildScreen({ route, navigation }) {
         setPhase("build");
         const json = await res.json();
 
-        // stop stopwatch
         const buildMsMeasured = Date.now() - t0Ref.current;
         clearInterval(timerRef.current);
 
@@ -106,29 +102,28 @@ export default function BuildScreen({ route, navigation }) {
           Alert.alert("Some sections had less material", json.warnings.join("\n\n"), [{ text: "OK" }]);
         }
 
-        // Prefer server total_ms if available; else use measured time
         const serverTotal = json?.metrics?.total_ms;
         const buildMs = typeof serverTotal === "number" ? serverTotal : buildMsMeasured;
 
-        // cache deck meta incl. build time + metrics
-        await saveLastDeck({
-          deckId: json.deck_id,
-          name: name.replace(/\.pdf$/i, ""),
-          cardsCount: json.cards_created ?? null,
-          buildMs,
-          metrics: json?.metrics ?? null,
-        });
-
-        // cache the compact study template for review
-        if (json?.template) {
-          await saveTemplate(json.deck_id, json.template);
-        }
-
-        // go to game picker (also pass buildMs so we can show it immediately)
+        // Go to picker immediately so the UI isn’t blocked by storage writes
         navigation.reset({
           index: 0,
           routes: [{ name: "Picker", params: { deckId: json.deck_id, buildMs } }],
         });
+
+        // Save meta + template in the background
+        setTimeout(() => {
+          saveLastDeck({
+            deckId: json.deck_id,
+            name: name.replace(/\.pdf$/i, ""),
+            cardsCount: json.cards_created ?? null,
+            buildMs,
+            metrics: json?.metrics ?? null,
+          }).catch(() => {});
+          if (json?.template) {
+            saveTemplate(json.deck_id, json.template).catch(() => {});
+          }
+        }, 0);
       } catch (err) {
         clearInterval(timerRef.current);
         setErrMsg(err?.message ?? String(err));
@@ -166,7 +161,6 @@ export default function BuildScreen({ route, navigation }) {
               <Text style={styles.progressLabel}>Generate</Text>
             </View>
 
-            {/* stopwatch display */}
             <Text style={{ color:"#93c5fd", fontWeight:"800", marginTop: 8 }}>
               Elapsed: {formatMs(elapsedMs)}
             </Text>

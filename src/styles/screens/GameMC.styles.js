@@ -1,133 +1,116 @@
 // src/styles/screens/GameMC.styles.js
 import { StyleSheet } from "react-native";
 
+const BG    = "#062B52";
+const BLUE  = "#0ea5e9";
+const GOLD  = "#FDB515";
+const TEXT  = "#E6ECF0";
+const MUTED = "#9fbcd8";
+const PANEL_BORDER = "rgba(255,255,255,0.08)";
+
 export const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#003262", paddingHorizontal: 12, paddingTop: 10 },
+  // ───────── Containers / common ─────────
+  container: { flex: 1, backgroundColor: BG },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: BG },
+  muted: { color: MUTED },
+  error: { color: GOLD, fontWeight: "700" },
 
-  center: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#003262",
-  },
-  muted: { color: "#E6ECF0", marginTop: 10, fontSize: 16 },
-  error: { color: "#FFCDD2", fontSize: 16 },
-
+  // ───────── Top bar ─────────
   topBar: {
+    height: 48,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 8,
   },
-  header: { color: "#E6ECF0", fontWeight: "900", fontSize: 18 },
+  topBarDesktop: {
+    height: 56,
+    paddingVertical: 4,
+  },
   topBtn: {
-    backgroundColor: "#0B3D91",
-    borderWidth: 1,
-    borderColor: "#0C4A6E",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 10,
+    backgroundColor: "rgba(255,255,255,0.10)",
   },
-  topBtnTxt: { color: "#FFCD00", fontWeight: "800" },
+  topBtnTxt: { color: TEXT, fontWeight: "700" },
+  header: { color: TEXT, fontWeight: "800" },
 
-  // Mode bar
+  // ───────── Mode toggle + counters ─────────
   modeBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 10,
-  },
-  modeToggleWrap: {
-    flexDirection: "row",
-    backgroundColor: "#012B57",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#0C4A6E",
-    overflow: "hidden",
-  },
-  modeToggleBtn: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
     paddingVertical: 8,
   },
-  modeToggleActive: {
-    backgroundColor: "#0ea5e9",
+  modeToggleWrap: { flexDirection: "row", gap: 8 },
+  modeToggleBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: "rgba(255,255,255,0.08)",
   },
-  modeToggleTxt: {
-    color: "#E6ECF0",
+  modeToggleActive: { backgroundColor: BLUE },
+  modeToggleTxt: { color: TEXT, fontWeight: "700" },
+  modeToggleTxtActive: { color: "white" },
+
+  counterRow: { flexDirection: "row", gap: 8, alignItems: "center" },
+  counterPill: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999 },
+  counterRight: { backgroundColor: "rgba(34,197,94,0.25)" },
+  counterWrong: { backgroundColor: "rgba(239,68,68,0.25)" },
+  counterTxt: { color: TEXT, fontWeight: "700" },
+  counterPillMuted: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  counterTxtMuted: { color: MUTED, fontWeight: "700" },
+
+  // ───────── Main content layout (card + options) ─────────
+  contentWrap: {
+    flexGrow: 1,
+    paddingHorizontal: 8,
+    paddingBottom: 8,
+  },
+  twoCol: { flexDirection: "row", columnGap: 24, rowGap: 24 },
+  stacked: { flexDirection: "column", rowGap: 16 },
+
+  // Question text (inside CardShell)
+  question: {
+    color: "#0b1e36",
+    textAlign: "center",
+    fontSize: 22,
     fontWeight: "800",
   },
-  modeToggleTxtActive: {
-    color: "white",
-  },
+  questionDesktop: { fontSize: 26 },
 
-  counterRow: {
-    flexDirection: "row",
-    gap: 8,
-    alignItems: "center",
-  },
-  counterPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
-  counterRight: { backgroundColor: "#10b981" },
-  counterWrong: { backgroundColor: "#ef4444" },
-  counterTxt: { color: "white", fontWeight: "900" },
-
-  counterPillMuted: {
-    backgroundColor: "#0B274A",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#0C4A6E",
-  },
-  counterTxtMuted: { color: "#A7B3C9", fontWeight: "800" },
-
-  question: {
-    color: "#0f172a",
-    fontWeight: "900",
-    fontSize: 22,
-    textAlign: "center",
-  },
-
-  opts: {
-    marginTop: 14,
-    gap: 10,
-  },
+  // Options list
+  optsWrap: { alignItems: "stretch", justifyContent: "flex-start" },
+  opts: { gap: 10, alignSelf: "center", width: "100%" },
+  optsDesktop: { gap: 12, maxWidth: 540, alignSelf: "stretch" },
   opt: {
-    backgroundColor: "#0b1226",
-    borderWidth: 2,
-    borderColor: "#0C4A6E",
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-  },
-  optText: {
-    color: "#E6ECF0",
-    fontSize: 16,
-    fontWeight: "700",
-    textAlign: "center",
-  },
-
-  controls: {
-    marginTop: 14,
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 12,
-  },
-  btn: {
-    backgroundColor: "#FDB515",
-    paddingHorizontal: 18,
-    paddingVertical: 10,
+    minHeight: 48,
     borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: "rgba(6,34,66,0.85)",
+    borderWidth: 1,
+    borderColor: PANEL_BORDER,
   },
-  btnTxt: { color: "#082F49", fontWeight: "900" },
+  optDesktop: { minHeight: 56, paddingVertical: 14, paddingHorizontal: 18, borderRadius: 12 },
+  optText: { color: TEXT, fontSize: 16, lineHeight: 22, fontWeight: "700" },
+  optTextDesktop: { fontSize: 18, lineHeight: 24 },
+
+  // Prev / Next buttons
+  controls: { marginTop: 14, alignSelf: "center", flexDirection: "row", gap: 12 },
+  controlsDesktop: { gap: 16 },
+  btn: { backgroundColor: GOLD, borderRadius: 10, paddingHorizontal: 18, paddingVertical: 10 },
+  btnTxt: { color: "#0b1e36", fontWeight: "800" },
 });
 
-// Option state colors
 export const stateStyles = StyleSheet.create({
-  idle: { borderColor: "#0C4A6E" },
-  correct: { borderColor: "#22c55e", backgroundColor: "rgba(34,197,94,0.15)" },
-  wrong: { borderColor: "#ef4444", backgroundColor: "rgba(239,68,68,0.15)" },
+  idle: {},
+  correct: { backgroundColor: "rgba(34,197,94,0.18)", borderColor: "rgba(34,197,94,0.65)" },
+  wrong:   { backgroundColor: "rgba(239,68,68,0.18)", borderColor: "rgba(239,68,68,0.65)" },
 });

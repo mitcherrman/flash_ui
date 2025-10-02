@@ -1,12 +1,5 @@
 // src/components/FlipDrill.js
-/* FlipDrill – two-sided flash-card drill (basic / MC)
-   • UC-Berkeley palette, larger type
-   • Toggle to show/hide excerpt
-   • Shows source info: Section, Page, Context, Excerpt
-   • TOC jump without reordering: keep list in doc order and set initial index locally
-   • Landscape (native): hide info panel so the card can fit with a small border
-   • Watermark image on card faces (subtle opacity)
-*/
+/* FlipDrill – two-sided flash-card drill (basic / MC) */
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   SafeAreaView,
@@ -32,16 +25,17 @@ import styles from "../styles/components/FlipDrill.styles";
 
 const API_ROOT = `${API_BASE}/api/flashcards`;
 const WATERMARK = require("../../assets/BEARlogo.png");
-const CARD_ASPECT = 0.6; // height = width * 0.6
+const CARD_ASPECT = 0.6;
 
 export default function FlipDrill({
   deckId,
   n = "all",
-  order = "random",          // "random" | "doc"
-  startOrdinal = null,       // number | null (1-based)
-  onOpenTOC,
-  onGoBack,                  // optional override for Back action
-  navigation,                // optional (if parent passes react-navigation prop)
+  order = "random",
+  startOrdinal = null,
+  onOpenTOC,               // optional
+  onGoBack,                // optional
+  navigation,              // optional (if provided, we auto-wire Back/TOC)
+  contentInsetBottom = 0,  // NEW: height to keep clear (e.g., TemplateBar)
 }) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -49,7 +43,7 @@ export default function FlipDrill({
   const hideInfoPanel = Platform.OS !== "web" && isLandscape;
   const BORDER = isLandscape ? 8 : 16;
 
-  // Compute card size
+  // Size
   let CARD_W, CARD_H;
   if (!isLandscape) {
     CARD_W = Math.min(900, width * 0.9);
@@ -89,16 +83,10 @@ export default function FlipDrill({
     }).start();
   }, [flipped]);
 
-  const frontRot = flipAnim.interpolate({
-    inputRange: [0, 180],
-    outputRange: ["0deg", "180deg"],
-  });
-  const backRot = flipAnim.interpolate({
-    inputRange: [0, 180],
-    outputRange: ["180deg", "360deg"],
-  });
+  const frontRot = flipAnim.interpolate({ inputRange: [0, 180], outputRange: ["0deg", "180deg"] });
+  const backRot  = flipAnim.interpolate({ inputRange: [0, 180], outputRange: ["180deg", "360deg"] });
 
-  // load cards (keeps doc order; we jump locally)
+  // load cards
   useEffect(() => {
     (async () => {
       try {
@@ -131,9 +119,7 @@ export default function FlipDrill({
             : 0;
         setIdx(initial);
         setFlipped(false);
-      } catch (e) {
-        setErr(String(e));
-      }
+      } catch (e) { setErr(String(e)); }
     })();
   }, [deckId, n, order, startOrdinalNum]);
 
@@ -154,27 +140,28 @@ export default function FlipDrill({
 
   const nextCard = () => {
     if (!cards.length) return;
-    Haptics.selectionAsync();
+    Haptics.selectionAsync().catch(() => {});
     setIdx((i) => (i + 1) % cards.length);
     setFlipped(false);
   };
   const prevCard = () => {
     if (!cards.length) return;
-    Haptics.selectionAsync();
+    Haptics.selectionAsync().catch(() => {});
     setIdx((i) => (i - 1 + cards.length) % cards.length);
     setFlipped(false);
   };
 
   const handleBack = () => {
-    if (typeof onGoBack === "function") {
-      onGoBack();
-      return;
-    }
+    if (typeof onGoBack === "function") return onGoBack();
     if (navigation?.reset) {
-      navigation.reset({
-        index: 0,
-        routes: [{ name: "Picker", params: { deckId } }],
-      });
+      navigation.reset({ index: 0, routes: [{ name: "Picker", params: { deckId } }] });
+    }
+  };
+
+  const openTOC = () => {
+    if (typeof onOpenTOC === "function") return onOpenTOC(idx + 1);
+    if (navigation?.navigate) {
+      navigation.navigate("TOC", { deckId, returnTo: "Game2", startOrdinal: idx + 1 });
     }
   };
 
@@ -182,14 +169,12 @@ export default function FlipDrill({
     if (!s) return "";
     const t = String(s).trim();
     return t.length > limit ? t.slice(0, limit - 1) + "…" : t;
-  };
+    };
 
   if (err) {
     return (
       <SafeAreaView style={styles.center}>
-        <Text style={{ color: "#FDB515", textAlign: "center", fontSize: 18 }}>
-          {err}
-        </Text>
+        <Text style={{ color: "#FDB515", textAlign: "center", fontSize: 18 }}>{err}</Text>
       </SafeAreaView>
     );
   }
@@ -197,9 +182,7 @@ export default function FlipDrill({
     return (
       <SafeAreaView style={styles.center}>
         <ActivityIndicator size="large" color="#FDB515" />
-        <Text style={{ marginTop: 8, color: "#E6ECF0", fontSize: 18 }}>
-          Loading cards…
-        </Text>
+        <Text style={{ marginTop: 8, color: "#E6ECF0", fontSize: 18 }}>Loading cards…</Text>
       </SafeAreaView>
     );
   }
@@ -224,14 +207,12 @@ export default function FlipDrill({
               <Text style={styles.backTxt}>Back</Text>
             </TouchableOpacity>
           )}
-          <Text style={styles.counter}>
-            Card {idx + 1}/{cards.length}
-          </Text>
+          <Text style={styles.counter}>Card {idx + 1}/{cards.length}</Text>
         </View>
 
         <View style={{ flexDirection: "row", alignItems: "center" }}>
-          {onOpenTOC && (
-            <TouchableOpacity onPress={onOpenTOC} style={styles.tocBtn}>
+          {(onOpenTOC || navigation) && (
+            <TouchableOpacity onPress={openTOC} style={styles.tocBtn}>
               <Text style={styles.tocTxt}>TOC</Text>
             </TouchableOpacity>
           )}
@@ -251,66 +232,37 @@ export default function FlipDrill({
       <Animated.View
         {...responder.panHandlers}
         style={[
-          styles.cardWrap,
-          { width: CARD_W, height: CARD_H },
+          styles.cardWrap, { width: CARD_W, height: CARD_H },
           { transform: [{ translateX: panX }] },
         ]}
       >
-        <View style={styles.badge}>
-          <Text style={styles.badgeTxt}>#{idx + 1}</Text>
-        </View>
+        <View style={styles.badge}><Text style={styles.badgeTxt}>#{idx + 1}</Text></View>
 
         {/* FRONT */}
-        <Animated.View
-          style={[
-            styles.card,
-            { transform: [{ perspective: 1000 }, { rotateY: frontRot }] },
-          ]}
-        >
-          <Image
-            source={WATERMARK}
-            style={styles.watermark}
-            resizeMode="contain"
-            pointerEvents="none"
-          />
+        <Animated.View style={[styles.card, { transform: [{ perspective: 1000 }, { rotateY: frontRot }] }]}>
+          <Image source={WATERMARK} style={styles.watermark} resizeMode="contain" pointerEvents="none" />
           <Text style={styles.textFront}>{card.front}</Text>
         </Animated.View>
 
         {/* BACK */}
-        <Animated.View
-          style={[
-            styles.card,
-            styles.cardBack,
-            { transform: [{ perspective: 1000 }, { rotateY: backRot }] },
-          ]}
-        >
+        <Animated.View style={[styles.card, styles.cardBack, { transform: [{ perspective: 1000 }, { rotateY: backRot }] }]}>
           <LinearGradient
             colors={["rgba(0,0,0,0.08)", "rgba(0,0,0,0.02)", "rgba(0,0,0,0.08)"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 0, y: 1 }}
+            start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
             style={StyleSheet.absoluteFillObject}
           />
           <LinearGradient
             colors={["rgba(0,0,0,0.06)", "rgba(0,0,0,0.02)", "rgba(0,0,0,0.06)"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
+            start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
             style={StyleSheet.absoluteFillObject}
           />
-          <Image
-            source={WATERMARK}
-            style={[styles.watermark, styles.watermarkBack]}
-            resizeMode="contain"
-            pointerEvents="none"
-          />
+          <Image source={WATERMARK} style={[styles.watermark, styles.watermarkBack]} resizeMode="contain" pointerEvents="none" />
           <Text style={styles.textBack}>{card.back}</Text>
         </Animated.View>
 
         <Pressable
           style={StyleSheet.absoluteFillObject}
-          onPress={() => {
-            Haptics.selectionAsync();
-            setFlipped((f) => !f);
-          }}
+          onPress={() => { Haptics.selectionAsync().catch(() => {}); setFlipped((f) => !f); }}
         />
       </Animated.View>
 
@@ -334,8 +286,8 @@ export default function FlipDrill({
         </View>
       )}
 
-      {/* Controls */}
-      <View style={[styles.buttons, { bottom: 34 + insets.bottom }]}>
+      {/* Controls – LIFTED above TemplateBar via contentInsetBottom */}
+      <View style={[styles.buttons, { bottom: 34 + insets.bottom + (contentInsetBottom || 0) }]}>
         <Pressable style={styles.btn} onPress={prevCard}>
           <Text style={styles.btnTxt}>Prev</Text>
         </Pressable>

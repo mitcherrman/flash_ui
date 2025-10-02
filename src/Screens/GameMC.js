@@ -1,17 +1,29 @@
 // src/Screens/GameMC.js
 import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, Pressable, ActivityIndicator } from "react-native";
+import { useWindowDimensions } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 import { API_BASE } from "../config";
 import CardShell from "../components/CardShell";
 import { pickDistractors, shuffle } from "../utils/PickDistractors";
 import { fetchWithCache, deckHandKey } from "../utils/cache";
+import TemplateBar from "../components/TemplateBar";
 import { s, stateStyles } from "../styles/screens/GameMC.styles";
 
 const API_ROOT = `${API_BASE}/api/flashcards`;
 
 export default function GameMC({ route, navigation }) {
+  const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+
+  // always stacked UI; just size responsively
+  const CONTENT_MAX_W = Math.min(960, width * 0.94);
+  const CARD_W = Math.min(720, CONTENT_MAX_W);
+  const CARD_H = CARD_W * 0.6;
+
   const { deckId, order = "doc", startOrdinal = null } = route.params || {};
+  const [barH, setBarH] = useState(72); // TemplateBar height
 
   const [cards, setCards] = useState([]);
   const [idx, setIdx] = useState(0);
@@ -44,7 +56,7 @@ export default function GameMC({ route, navigation }) {
     });
   }
 
-  // load deck in doc order
+  // load deck
   useEffect(() => {
     (async () => {
       try {
@@ -86,20 +98,18 @@ export default function GameMC({ route, navigation }) {
   }, [deckId, order, startOrdinalNum]);
 
   // helper: sanitize strings
-  const _norm = (s) => (String(s || "").trim().replace(/\s+/g, " "));
+  const _norm = (s) => String(s || "").trim().replace(/\s+/g, " ");
 
-  // Build options when card changes:
-  // 1) use server-provided LLM distractors when present
-  // 2) top up with pickDistractors (cross-card) to reach 3
+  // Build options when card changes
   useEffect(() => {
     if (!cards.length) return;
     const card = cards[idx];
     const correct = _norm(card.back);
 
-    // 1) Prefer LLM-authored distractors (card.distractors)
+    // 1) Prefer LLM distractors if present
     let d = Array.isArray(card?.distractors) ? card.distractors.map(_norm).filter(Boolean) : [];
 
-    // Remove duplicates and any equal to the correct answer (case-insensitive)
+    // No dupes / no correct collisions
     const seen = new Set();
     d = d.filter((x) => {
       const key = x.toLowerCase();
@@ -109,17 +119,14 @@ export default function GameMC({ route, navigation }) {
       return true;
     });
 
-    // 2) Top up if fewer than 3 using your existing pool-based picker
+    // 2) Top up from pool to 3 choices
     if (d.length < 3) {
       const needed = 3 - d.length;
-      // oversample from pool, then filter collisions
       const pool = pickDistractors(card, cards, Math.max(needed * 2, 3));
       for (const cand of pool) {
         const c = _norm(cand);
         const key = c.toLowerCase();
-        if (!c) continue;
-        if (key === correct.toLowerCase()) continue;
-        if (seen.has(key)) continue;
+        if (!c || key === correct.toLowerCase() || seen.has(key)) continue;
         d.push(c);
         seen.add(key);
         if (d.length >= 3) break;
@@ -136,7 +143,6 @@ export default function GameMC({ route, navigation }) {
     if (!cards.length) return;
     setIdx((i) => (i + 1) % cards.length);
   };
-
   const prev = () => {
     if (!cards.length) return;
     setIdx((i) => (i - 1 + cards.length) % cards.length);
@@ -145,19 +151,13 @@ export default function GameMC({ route, navigation }) {
   const pick = (i) => {
     if (picked != null) return; // lock after first answer
     setPicked(i);
-    Haptics.selectionAsync();
-
-    // Endless mode: update counters
+    Haptics.selectionAsync().catch(() => {});
     if (gameMode === "endless") {
       if (i === correctIndex) setRightCount((n) => n + 1);
       else setWrongCount((n) => n + 1);
     }
-
-    // brief feedback then advance
     setTimeout(next, 700);
   };
-
-  const total = cards.length;
 
   const switchMode = (mode) => {
     if (mode === gameMode) return;
@@ -184,18 +184,17 @@ export default function GameMC({ route, navigation }) {
   }
 
   const card = cards[idx];
+  const total = cards.length;
 
   return (
     <View style={s.container}>
       {/* Top row: Back • Card counter • TOC */}
-      <View style={s.topBar}>
+      <View style={[s.topBar, { paddingTop: insets.top + 8, paddingHorizontal: 12 }]}>
         <Pressable onPress={goToPicker} style={s.topBtn}>
           <Text style={s.topBtnTxt}>Back</Text>
         </Pressable>
 
-        <Text style={s.header}>
-          Card {idx + 1}/{total}
-        </Text>
+        <Text style={s.header}>Card {idx + 1}/{total}</Text>
 
         <Pressable
           onPress={() =>
@@ -212,15 +211,13 @@ export default function GameMC({ route, navigation }) {
       </View>
 
       {/* Mode toggle + (Endless) counters */}
-      <View style={s.modeBar}>
+      <View style={[s.modeBar, { maxWidth: CONTENT_MAX_W, alignSelf: "center" }]}>
         <View style={s.modeToggleWrap}>
           <Pressable
             onPress={() => switchMode("normal")}
             style={[s.modeToggleBtn, gameMode === "normal" && s.modeToggleActive]}
           >
-            <Text
-              style={[s.modeToggleTxt, gameMode === "normal" && s.modeToggleTxtActive]}
-            >
+            <Text style={[s.modeToggleTxt, gameMode === "normal" && s.modeToggleTxtActive]}>
               Normal
             </Text>
           </Pressable>
@@ -228,9 +225,7 @@ export default function GameMC({ route, navigation }) {
             onPress={() => switchMode("endless")}
             style={[s.modeToggleBtn, gameMode === "endless" && s.modeToggleActive]}
           >
-            <Text
-              style={[s.modeToggleTxt, gameMode === "endless" && s.modeToggleTxtActive]}
-            >
+            <Text style={[s.modeToggleTxt, gameMode === "endless" && s.modeToggleTxtActive]}>
               Endless
             </Text>
           </Pressable>
@@ -254,32 +249,47 @@ export default function GameMC({ route, navigation }) {
         )}
       </View>
 
-      <CardShell width={720} height={720 * 0.6} variant="front">
-        <Text style={s.question}>{card.front}</Text>
-      </CardShell>
+      {/* Stacked content (card → options → controls) */}
+      <View style={s.content}>
+        <View style={[s.contentMax, { maxWidth: CONTENT_MAX_W }]}>
+          {/* Card/question */}
+          <CardShell width={CARD_W} height={CARD_H} variant="front">
+            <Text style={s.question}>{card.front}</Text>
+          </CardShell>
 
-      <View style={s.opts}>
-        {options.map((opt, i) => {
-          const isPicked = picked === i;
-          const isCorrect = i === correctIndex;
-          const state =
-            picked == null ? "idle" : isCorrect ? "correct" : isPicked ? "wrong" : "idle";
-          return (
-            <Pressable key={i} onPress={() => pick(i)} style={[s.opt, stateStyles[state]]}>
-              <Text style={s.optText}>{opt}</Text>
+          {/* Options */}
+          <View style={s.opts}>
+            {options.map((opt, i) => {
+              const isPicked = picked === i;
+              const isCorrect = i === correctIndex;
+              const state =
+                picked == null ? "idle" : isCorrect ? "correct" : isPicked ? "wrong" : "idle";
+              return (
+                <Pressable
+                  key={i}
+                  onPress={() => pick(i)}
+                  style={[s.opt, stateStyles[state]]}
+                >
+                  <Text style={s.optText}>{opt}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {/* Prev/Next – lifted above TemplateBar */}
+          <View style={[s.controls, { marginBottom: barH + 8 + insets.bottom }]}>
+            <Pressable onPress={prev} style={s.btn}>
+              <Text style={s.btnTxt}>Previous</Text>
             </Pressable>
-          );
-        })}
+            <Pressable onPress={next} style={s.btn}>
+              <Text style={s.btnTxt}>Next</Text>
+            </Pressable>
+          </View>
+        </View>
       </View>
 
-      <View style={s.controls}>
-        <Pressable onPress={prev} style={s.btn}>
-          <Text style={s.btnTxt}>Previous</Text>
-        </Pressable>
-        <Pressable onPress={next} style={s.btn}>
-          <Text style={s.btnTxt}>Next</Text>
-        </Pressable>
-      </View>
+      {/* Fixed bottom Template bar (centered) */}
+      <TemplateBar deckId={deckId} onHeight={setBarH} />
     </View>
   );
 }
