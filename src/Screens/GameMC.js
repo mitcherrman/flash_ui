@@ -1,14 +1,19 @@
 // src/Screens/GameMC.js
 import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, Pressable, ActivityIndicator } from "react-native";
+import {
+  View,
+  Text,
+  Pressable,
+  ActivityIndicator,
+  Platform,
+} from "react-native";
 import { useWindowDimensions } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSafeAreaInsets, SafeAreaView } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 import { API_BASE } from "../config";
 import CardShell from "../components/CardShell";
 import { pickDistractors, shuffle } from "../utils/PickDistractors";
 import { fetchWithCache, deckHandKey } from "../utils/cache";
-import TemplateBar from "../components/TemplateBar";
 import { s, stateStyles } from "../styles/screens/GameMC.styles";
 
 const API_ROOT = `${API_BASE}/api/flashcards`;
@@ -17,13 +22,24 @@ export default function GameMC({ route, navigation }) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
-  // always stacked UI; just size responsively
-  const CONTENT_MAX_W = Math.min(960, width * 0.94);
+  // layout flags
+  const isLandscape = width > height;
+  const isWeb = Platform.OS === "web";
+  const canHover =
+    isWeb &&
+    typeof window !== "undefined" &&
+    window.matchMedia &&
+    window.matchMedia("(hover: hover)").matches;
+  const isDesktopWeb = isWeb && (width >= 1024 || canHover);
+
+  // sizes
+  const CONTENT_MAX_W = isDesktopWeb ? Math.min(1200, width * 0.92) : Math.min(960, width * 0.94);
   const CARD_W = Math.min(720, CONTENT_MAX_W);
-  const CARD_H = CARD_W * 0.6;
+  const CARD_H = isLandscape
+    ? Math.max(70, Math.min(110, Math.floor(height * 0.12)))
+    : Math.floor(CARD_W * 0.6);
 
   const { deckId, order = "doc", startOrdinal = null } = route.params || {};
-  const [barH, setBarH] = useState(72); // TemplateBar height
 
   const [cards, setCards] = useState([]);
   const [idx, setIdx] = useState(0);
@@ -31,10 +47,10 @@ export default function GameMC({ route, navigation }) {
   const [err, setErr] = useState("");
 
   const [options, setOptions] = useState([]);
-  const [picked, setPicked] = useState(null); // index of chosen option
+  const [picked, setPicked] = useState(null);
   const [correctIndex, setCorrectIndex] = useState(null);
 
-  // Modes: "normal" (no scoring), "endless" (track right/wrong counters)
+  // modes
   const [gameMode, setGameMode] = useState("normal");
   const [rightCount, setRightCount] = useState(0);
   const [wrongCount, setWrongCount] = useState(0);
@@ -50,13 +66,9 @@ export default function GameMC({ route, navigation }) {
   }, [startOrdinal]);
 
   function goToPicker() {
-    navigation.reset({
-      index: 0,
-      routes: [{ name: "Picker", params: { deckId } }],
-    });
+    navigation.reset({ index: 0, routes: [{ name: "Picker", params: { deckId } }] });
   }
 
-  // load deck
   useEffect(() => {
     (async () => {
       try {
@@ -85,8 +97,6 @@ export default function GameMC({ route, navigation }) {
             ? startOrdinalNum - 1
             : 0;
         setIdx(initial);
-
-        // reset scoring when loading a new deck / jumping
         setRightCount(0);
         setWrongCount(0);
       } catch (e) {
@@ -97,19 +107,14 @@ export default function GameMC({ route, navigation }) {
     })();
   }, [deckId, order, startOrdinalNum]);
 
-  // helper: sanitize strings
   const _norm = (s) => String(s || "").trim().replace(/\s+/g, " ");
 
-  // Build options when card changes
   useEffect(() => {
     if (!cards.length) return;
     const card = cards[idx];
     const correct = _norm(card.back);
 
-    // 1) Prefer LLM distractors if present
     let d = Array.isArray(card?.distractors) ? card.distractors.map(_norm).filter(Boolean) : [];
-
-    // No dupes / no correct collisions
     const seen = new Set();
     d = d.filter((x) => {
       const key = x.toLowerCase();
@@ -119,7 +124,6 @@ export default function GameMC({ route, navigation }) {
       return true;
     });
 
-    // 2) Top up from pool to 3 choices
     if (d.length < 3) {
       const needed = 3 - d.length;
       const pool = pickDistractors(card, cards, Math.max(needed * 2, 3));
@@ -149,7 +153,7 @@ export default function GameMC({ route, navigation }) {
   };
 
   const pick = (i) => {
-    if (picked != null) return; // lock after first answer
+    if (picked != null) return;
     setPicked(i);
     Haptics.selectionAsync().catch(() => {});
     if (gameMode === "endless") {
@@ -187,78 +191,110 @@ export default function GameMC({ route, navigation }) {
   const total = cards.length;
 
   return (
-    <View style={s.container}>
-      {/* Top row: Back • Card counter • TOC */}
-      <View style={[s.topBar, { paddingTop: insets.top + 8, paddingHorizontal: 12 }]}>
-        <Pressable onPress={goToPicker} style={s.topBtn}>
-          <Text style={s.topBtnTxt}>Back</Text>
-        </Pressable>
-
-        <Text style={s.header}>Card {idx + 1}/{total}</Text>
-
-        <Pressable
-          onPress={() =>
-            navigation.navigate("TOC", {
-              deckId,
-              returnTo: "GameMC",
-              startOrdinal: idx + 1,
-            })
-          }
-          style={[s.topBtn, { backgroundColor: "#0ea5e9" }]}
-        >
-          <Text style={[s.topBtnTxt, { color: "white" }]}>TOC</Text>
-        </Pressable>
-      </View>
-
-      {/* Mode toggle + (Endless) counters */}
-      <View style={[s.modeBar, { maxWidth: CONTENT_MAX_W, alignSelf: "center" }]}>
-        <View style={s.modeToggleWrap}>
-          <Pressable
-            onPress={() => switchMode("normal")}
-            style={[s.modeToggleBtn, gameMode === "normal" && s.modeToggleActive]}
-          >
-            <Text style={[s.modeToggleTxt, gameMode === "normal" && s.modeToggleTxtActive]}>
-              Normal
-            </Text>
+    <SafeAreaView style={s.container}>
+      {/* Top row */}
+      <View
+        style={[
+          s.topBar,
+          {
+            paddingTop: (isLandscape ? 4 : 8),
+            paddingHorizontal: 10,
+            minHeight: isLandscape ? 48 : 60, // give portrait a bit more room
+          },
+        ]}
+      >
+        {/* Left */}
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <Pressable onPress={goToPicker} style={s.topBtn}>
+            <Text style={s.topBtnTxt}>Back</Text>
           </Pressable>
-          <Pressable
-            onPress={() => switchMode("endless")}
-            style={[s.modeToggleBtn, gameMode === "endless" && s.modeToggleActive]}
-          >
-            <Text style={[s.modeToggleTxt, gameMode === "endless" && s.modeToggleTxtActive]}>
-              Endless
-            </Text>
-          </Pressable>
+          <View style={[s.modeToggleWrap, { marginLeft: 4 }]}>
+            <Pressable
+              onPress={() => switchMode("normal")}
+              style={[s.modeToggleBtn, gameMode === "normal" && s.modeToggleActive]}
+            >
+              <Text style={[s.modeToggleTxt, gameMode === "normal" && s.modeToggleTxtActive]}>
+                1
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => switchMode("endless")}
+              style={[s.modeToggleBtn, gameMode === "endless" && s.modeToggleActive]}
+            >
+              <Text style={[s.modeToggleTxt, gameMode === "endless" && s.modeToggleTxtActive]}>
+                2
+              </Text>
+            </Pressable>
+          </View>
         </View>
 
-        {gameMode === "endless" ? (
-          <View style={s.counterRow}>
-            <View style={[s.counterPill, s.counterRight]}>
-              <Text style={s.counterTxt}>Right: {rightCount}</Text>
-            </View>
-            <View style={[s.counterPill, s.counterWrong]}>
-              <Text style={s.counterTxt}>Wrong: {wrongCount}</Text>
-            </View>
-          </View>
+        {/* Center title */}
+        {isLandscape ? (
+          // keep perfect centering in landscape
+          <Text
+            style={{
+              position: "absolute",
+              left: 0,
+              right: 0,
+              textAlign: "center",
+              top: insets.top + 6,
+              color: "#E6ECF0",
+              fontWeight: "800",
+            }}
+          >
+            Card {idx + 1}/{total}
+          </Text>
         ) : (
-          <View style={s.counterRow}>
-            <View style={s.counterPillMuted}>
-              <Text style={s.counterTxtMuted}>Normal mode</Text>
-            </View>
+          // flex centering in portrait so nothing gets squished
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+            <Text style={s.header}>Card {idx + 1}/{total}</Text>
           </View>
         )}
+
+        {/* Right */}
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          {gameMode === "endless" && (
+            <>
+              <View style={[s.counterPill, s.counterRight]}>
+                <Text style={s.counterTxt}> {rightCount}</Text>
+              </View>
+              <View style={[s.counterPill, s.counterWrong]}>
+                <Text style={s.counterTxt}> {wrongCount}</Text>
+              </View>
+            </>
+          )}
+          <Pressable
+            onPress={() =>
+              navigation.navigate("TOC", {
+                deckId,
+                returnTo: "GameMC",
+                startOrdinal: idx + 1,
+              })
+            }
+            style={[s.topBtn, { backgroundColor: "#0ea5e9" }]}
+          >
+            <Text style={[s.topBtnTxt, { color: "white" }]}>TOC</Text>
+          </Pressable>
+        </View>
       </View>
 
-      {/* Stacked content (card → options → controls) */}
-      <View style={s.content}>
-        <View style={[s.contentMax, { maxWidth: CONTENT_MAX_W }]}>
-          {/* Card/question */}
+      {/* Card + options */}
+      <View style={[s.contentWrap, { maxWidth: CONTENT_MAX_W, alignSelf: "center" }]}>
+        <View style={{ alignItems: "center" }}>
           <CardShell width={CARD_W} height={CARD_H} variant="front">
-            <Text style={s.question}>{card.front}</Text>
+            <Text
+              style={[s.question, isLandscape && { fontSize: 15 }]}
+              numberOfLines={isLandscape ? 1 : 3}
+              adjustsFontSizeToFit
+              minimumFontScale={0.65}
+            >
+              {card.front}
+            </Text>
           </CardShell>
+        </View>
 
-          {/* Options */}
-          <View style={s.opts}>
+        <View style={[s.optsWrap, { marginTop: isLandscape ? 8 : 12 }]}>
+          <View style={[s.opts, { width: "100%" }]}>
             {options.map((opt, i) => {
               const isPicked = picked === i;
               const isCorrect = i === correctIndex;
@@ -268,16 +304,21 @@ export default function GameMC({ route, navigation }) {
                 <Pressable
                   key={i}
                   onPress={() => pick(i)}
-                  style={[s.opt, stateStyles[state]]}
+                  style={[
+                    s.opt,
+                    isLandscape && { minHeight: 40, paddingVertical: 8 },
+                    stateStyles[state],
+                  ]}
                 >
-                  <Text style={s.optText}>{opt}</Text>
+                  <Text style={[s.optText, isLandscape && { fontSize: 14, lineHeight: 18 }]}>
+                    {opt}
+                  </Text>
                 </Pressable>
               );
             })}
           </View>
 
-          {/* Prev/Next – lifted above TemplateBar */}
-          <View style={[s.controls, { marginBottom: barH + 8 + insets.bottom }]}>
+          <View style={[s.controls, { marginBottom: 12 + insets.bottom }]}>
             <Pressable onPress={prev} style={s.btn}>
               <Text style={s.btnTxt}>Previous</Text>
             </Pressable>
@@ -287,9 +328,6 @@ export default function GameMC({ route, navigation }) {
           </View>
         </View>
       </View>
-
-      {/* Fixed bottom Template bar (centered) */}
-      <TemplateBar deckId={deckId} onHeight={setBarH} />
-    </View>
+    </SafeAreaView>
   );
 }
