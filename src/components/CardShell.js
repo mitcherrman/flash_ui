@@ -1,77 +1,76 @@
 // src/components/CardShell.js
 import React from "react";
 import { View, StyleSheet, Image } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 
-const WATERMARK = require("../../assets/BEARlogo.png");
+const BEAR = require("../../assets/BEARlogo.png");
 
 export default function CardShell({
-  width,
-  height,
-  variant = "front", // "front" | "back"
+  width = 720,
+  height = Math.round(720 * 0.6),
+  variant = "front", // 'front' | 'back'
   children,
+  style,
 }) {
   const isBack = variant === "back";
+
   return (
-    <View style={[styles.wrap, { width, height }]}>
-      <View style={[styles.card, isBack && styles.cardBack]}>
-        {/* soft inner shadow */}
-        {isBack && (
-          <>
-            <LinearGradient
-              colors={["rgba(0,0,0,0.08)", "rgba(0,0,0,0.02)", "rgba(0,0,0,0.08)"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 0, y: 1 }}
-              style={StyleSheet.absoluteFillObject}
-            />
-            <LinearGradient
-              colors={["rgba(0,0,0,0.06)", "rgba(0,0,0,0.02)", "rgba(0,0,0,0.06)"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={StyleSheet.absoluteFillObject}
-            />
-          </>
-        )}
-
-        {/* watermark */}
+    <View
+      style={[
+        styles.shell,
+        {
+          width,
+          height,
+          backgroundColor: isBack ? "#FDB515" : "#FFFFFF",
+        },
+        style,
+      ]}
+    >
+      {/* Full-bleed watermark: centered + overscaled so the visible bear covers the card */}
+      <View style={styles.watermarkWrap} pointerEvents="none">
         <Image
-          source={WATERMARK}
+          source={BEAR}
+          style={[styles.watermarkImg, isBack && styles.watermarkImgBack]}
           resizeMode="contain"
-          pointerEvents="none"
-          style={[
-            styles.watermark,
-            isBack && { transform: [{ scaleX: -1 }] },
-          ]}
         />
-
-        {/* content */}
-        <View style={styles.inner}>{children}</View>
       </View>
+
+      {/* Foreground content */}
+      <View style={styles.inner}>{children}</View>
     </View>
   );
 }
 
+const RADIUS = 24;
+
 const styles = StyleSheet.create({
-  wrap: { alignItems: "center", justifyContent: "center" },
-  card: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
+  shell: {
+    borderRadius: RADIUS,
+    overflow: "hidden", // clip to rounded corners
     shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 6 },
-    overflow: "hidden",
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
   },
-  cardBack: { backgroundColor: "#FFCD00" },
-  watermark: {
-    position: "absolute",
-    top: 10,
-    left: 10,
-    width: 120,
-    height: 100,
-    opacity: 0.08,
+
+  // A full-card absolute layer that centers the watermark image
+  watermarkWrap: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
   },
+
+  // Overscale so the visible bear covers the card even if the PNG has padding
+  // Tweak 135–160% to taste
+  watermarkImg: {
+    width: "120%",
+    height: "120%",
+    opacity: 0.12,
+  },
+  watermarkImgBack: {
+    transform: [{ scaleX: -1 }], // mirror the bear on the back
+  },
+
   inner: {
     flex: 1,
     paddingHorizontal: 16,

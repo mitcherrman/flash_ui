@@ -1,5 +1,4 @@
 // src/components/FlipDrill.js
-/* FlipDrill – two-sided flash-card drill (basic / MC) */
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   SafeAreaView,
@@ -12,38 +11,34 @@ import {
   PanResponder,
   ActivityIndicator,
   Switch,
-  TouchableOpacity,
-  Image,
   Platform,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+
 import { API_BASE } from "../config";
 import { fetchWithCache, deckHandKey } from "../utils/cache";
+import CardShell from "./CardShell";
 import styles from "../styles/components/FlipDrill.styles";
 
 const API_ROOT = `${API_BASE}/api/flashcards`;
-const WATERMARK = require("../../assets/BEARlogo.png");
-const CARD_ASPECT = 0.6;
+const CARD_ASPECT = 0.6; // height = width * 0.6
 
 export default function FlipDrill({
   deckId,
   n = "all",
-  order = "random",
+  order = "doc",
   startOrdinal = null,
-  onOpenTOC,               // optional
-  onGoBack,                // optional
-  navigation,              // optional (if provided, we auto-wire Back/TOC)
-  contentInsetBottom = 0,  // NEW: height to keep clear (e.g., TemplateBar)
+  onOpenTOC,
+  onGoBack,
+  navigation,
 }) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const isLandscape = width > height;
-  const hideInfoPanel = Platform.OS !== "web" && isLandscape;
-  const BORDER = isLandscape ? 8 : 16;
 
   // Size
+  const BORDER = isLandscape ? 8 : 16;
   let CARD_W, CARD_H;
   if (!isLandscape) {
     CARD_W = Math.min(900, width * 0.9);
@@ -61,7 +56,7 @@ export default function FlipDrill({
   const [err, setErr] = useState("");
   const [showCtx, setShowCtx] = useState(true);
 
-  const flipAnim = useRef(new Animated.Value(0)).current;
+  const flipAnim = useRef(new Animated.Value(0)).current;   // 0 -> front, 180 -> back
   const panX = useRef(new Animated.Value(0)).current;
 
   const startOrdinalNum = useMemo(() => {
@@ -74,7 +69,7 @@ export default function FlipDrill({
     return Number.isFinite(v) && v > 0 ? v : null;
   }, [startOrdinal]);
 
-  // flip animation
+  // flip animation – rotate the WHOLE card
   useEffect(() => {
     Animated.timing(flipAnim, {
       toValue: flipped ? 180 : 0,
@@ -83,10 +78,16 @@ export default function FlipDrill({
     }).start();
   }, [flipped]);
 
-  const frontRot = flipAnim.interpolate({ inputRange: [0, 180], outputRange: ["0deg", "180deg"] });
-  const backRot  = flipAnim.interpolate({ inputRange: [0, 180], outputRange: ["180deg", "360deg"] });
+  const frontRot = flipAnim.interpolate({
+    inputRange: [0, 180],
+    outputRange: ["0deg", "180deg"],
+  });
+  const backRot = flipAnim.interpolate({
+    inputRange: [0, 180],
+    outputRange: ["180deg", "360deg"],
+  });
 
-  // load cards
+  // Load cards
   useEffect(() => {
     (async () => {
       try {
@@ -119,11 +120,13 @@ export default function FlipDrill({
             : 0;
         setIdx(initial);
         setFlipped(false);
-      } catch (e) { setErr(String(e)); }
+      } catch (e) {
+        setErr(String(e));
+      }
     })();
   }, [deckId, n, order, startOrdinalNum]);
 
-  // swipe navigation
+  // swipe nav
   const responder = useMemo(
     () =>
       PanResponder.create({
@@ -140,37 +143,29 @@ export default function FlipDrill({
 
   const nextCard = () => {
     if (!cards.length) return;
-    Haptics.selectionAsync().catch(() => {});
+    Haptics.selectionAsync();
     setIdx((i) => (i + 1) % cards.length);
     setFlipped(false);
   };
   const prevCard = () => {
     if (!cards.length) return;
-    Haptics.selectionAsync().catch(() => {});
+    Haptics.selectionAsync();
     setIdx((i) => (i - 1 + cards.length) % cards.length);
     setFlipped(false);
   };
 
   const handleBack = () => {
     if (typeof onGoBack === "function") return onGoBack();
-    if (navigation?.reset) {
-      navigation.reset({ index: 0, routes: [{ name: "Picker", params: { deckId } }] });
-    }
+    navigation?.reset?.({ index: 0, routes: [{ name: "Picker", params: { deckId } }] });
   };
 
-  const openTOC = () => {
-    if (typeof onOpenTOC === "function") return onOpenTOC(idx + 1);
-    if (navigation?.navigate) {
-      navigation.navigate("TOC", { deckId, returnTo: "Game2", startOrdinal: idx + 1 });
-    }
-  };
-
-  const ellipsize = (s, limit = 260) => {
+  const ellipsize = (s, limit = 360) => {
     if (!s) return "";
     const t = String(s).trim();
     return t.length > limit ? t.slice(0, limit - 1) + "…" : t;
-    };
+  };
 
+  // Loading / error
   if (err) {
     return (
       <SafeAreaView style={styles.center}>
@@ -202,20 +197,33 @@ export default function FlipDrill({
       {/* Top bar */}
       <View style={styles.topBar}>
         <View style={styles.leftGroup}>
-          {(onGoBack || navigation) && (
-            <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
-              <Text style={styles.backTxt}>Back</Text>
-            </TouchableOpacity>
-          )}
-          <Text style={styles.counter}>Card {idx + 1}/{cards.length}</Text>
+          <Pressable onPress={handleBack} style={styles.backBtn}>
+            <Text style={styles.backTxt}>Back</Text>
+          </Pressable>
+          <Text style={styles.counter}>
+            Card {idx + 1}/{cards.length}
+          </Text>
         </View>
 
         <View style={{ flexDirection: "row", alignItems: "center" }}>
-          {(onOpenTOC || navigation) && (
-            <TouchableOpacity onPress={openTOC} style={styles.tocBtn}>
+          {onOpenTOC ? (
+            <Pressable onPress={onOpenTOC} style={styles.tocBtn}>
               <Text style={styles.tocTxt}>TOC</Text>
-            </TouchableOpacity>
-          )}
+            </Pressable>
+          ) : navigation ? (
+            <Pressable
+              onPress={() =>
+                navigation.navigate("TOC", {
+                  deckId,
+                  returnTo: "Game2",
+                  startOrdinal: idx + 1,
+                })
+              }
+              style={styles.tocBtn}
+            >
+              <Text style={styles.tocTxt}>TOC</Text>
+            </Pressable>
+          ) : null}
           <View style={styles.ctxToggle}>
             <Text style={styles.ctxLabel}>Show context</Text>
             <Switch
@@ -228,46 +236,57 @@ export default function FlipDrill({
         </View>
       </View>
 
-      {/* Card */}
+      {/* Card – two shells stacked; rotate the ENTIRE shell */}
       <Animated.View
         {...responder.panHandlers}
         style={[
-          styles.cardWrap, { width: CARD_W, height: CARD_H },
+          styles.cardStage,
+          { width: CARD_W, height: CARD_H, alignSelf: "center" },
           { transform: [{ translateX: panX }] },
         ]}
       >
-        <View style={styles.badge}><Text style={styles.badgeTxt}>#{idx + 1}</Text></View>
-
         {/* FRONT */}
-        <Animated.View style={[styles.card, { transform: [{ perspective: 1000 }, { rotateY: frontRot }] }]}>
-          <Image source={WATERMARK} style={styles.watermark} resizeMode="contain" pointerEvents="none" />
-          <Text style={styles.textFront}>{card.front}</Text>
+        <Animated.View
+          style={[
+            StyleSheet.absoluteFillObject,
+            { backfaceVisibility: "hidden" },
+            { transform: [{ perspective: 1000 }, { rotateY: frontRot }] },
+          ]}
+        >
+          <CardShell width={CARD_W} height={CARD_H} variant="front">
+            <View style={styles.cardInner}>
+              <Text style={styles.textFront}>{card.front}</Text>
+            </View>
+          </CardShell>
         </Animated.View>
 
         {/* BACK */}
-        <Animated.View style={[styles.card, styles.cardBack, { transform: [{ perspective: 1000 }, { rotateY: backRot }] }]}>
-          <LinearGradient
-            colors={["rgba(0,0,0,0.08)", "rgba(0,0,0,0.02)", "rgba(0,0,0,0.08)"]}
-            start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
-            style={StyleSheet.absoluteFillObject}
-          />
-          <LinearGradient
-            colors={["rgba(0,0,0,0.06)", "rgba(0,0,0,0.02)", "rgba(0,0,0,0.06)"]}
-            start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-            style={StyleSheet.absoluteFillObject}
-          />
-          <Image source={WATERMARK} style={[styles.watermark, styles.watermarkBack]} resizeMode="contain" pointerEvents="none" />
-          <Text style={styles.textBack}>{card.back}</Text>
+        <Animated.View
+          style={[
+            StyleSheet.absoluteFillObject,
+            { backfaceVisibility: "hidden" },
+            { transform: [{ perspective: 1000 }, { rotateY: backRot }] },
+          ]}
+        >
+          <CardShell width={CARD_W} height={CARD_H} variant="back">
+            <View style={styles.cardInner}>
+              <Text style={styles.textBack}>{card.back}</Text>
+            </View>
+          </CardShell>
         </Animated.View>
 
+        {/* Tap to flip */}
         <Pressable
           style={StyleSheet.absoluteFillObject}
-          onPress={() => { Haptics.selectionAsync().catch(() => {}); setFlipped((f) => !f); }}
+          onPress={() => {
+            Haptics.selectionAsync();
+            setFlipped((f) => !f);
+          }}
         />
       </Animated.View>
 
       {/* Info panel (hidden in native landscape) */}
-      {!hideInfoPanel && (
+      {!(Platform.OS !== "web" && isLandscape) && (
         <View style={[styles.infoPanel, { width: CARD_W }]}>
           <Text style={styles.infoLine}>
             {!!sectionName && <Text style={styles.infoKey}>Section: </Text>}
@@ -286,8 +305,8 @@ export default function FlipDrill({
         </View>
       )}
 
-      {/* Controls – LIFTED above TemplateBar via contentInsetBottom */}
-      <View style={[styles.buttons, { bottom: 34 + insets.bottom + (contentInsetBottom || 0) }]}>
+      {/* Controls */}
+      <View style={[styles.buttons, { bottom: 34 + insets.bottom }]}>
         <Pressable style={styles.btn} onPress={prevCard}>
           <Text style={styles.btnTxt}>Prev</Text>
         </Pressable>

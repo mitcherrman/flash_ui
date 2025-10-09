@@ -3,6 +3,7 @@ import { StyleSheet } from "react-native";
 import { COLORS, SPACING, RADII, SHADOWS } from "../theme";
 
 export default StyleSheet.create({
+  // layout roots
   container: {
     flex: 1,
     backgroundColor: COLORS.bg,
@@ -14,6 +15,8 @@ export default StyleSheet.create({
     alignItems: "center",
     backgroundColor: COLORS.bg,
   },
+
+  // top bar
   topBar: {
     marginTop: SPACING.x2,
     width: "92%",
@@ -21,10 +24,7 @@ export default StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  leftGroup: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
+  leftGroup: { flexDirection: "row", alignItems: "center" },
   backBtn: {
     backgroundColor: "#0ea5e9",
     paddingHorizontal: SPACING.x2,
@@ -33,10 +33,8 @@ export default StyleSheet.create({
     marginRight: SPACING.x2,
   },
   backTxt: { color: "white", fontWeight: "800" },
-
   counter: { fontSize: 20, color: COLORS.text, fontWeight: "700" },
-  ctxToggle: { flexDirection: "row", alignItems: "center", marginLeft: SPACING.x2 },
-  ctxLabel: { color: COLORS.text, marginRight: SPACING.x1, fontSize: 16 },
+
   tocBtn: {
     backgroundColor: "#0ea5e9",
     paddingHorizontal: SPACING.x2,
@@ -46,32 +44,22 @@ export default StyleSheet.create({
   },
   tocTxt: { color: "white", fontWeight: "800" },
 
-  cardWrap: { marginTop: SPACING.x3 },
-  badge: {
-    position: "absolute",
-    top: -SPACING.x1,
-    left: SPACING.x2,
-    backgroundColor: "#0ea5e9",
-    paddingHorizontal: SPACING.x1,
-    paddingVertical: 4,
-    borderRadius: RADII.xl,
-    zIndex: 10,
-  },
-  badgeTxt: { color: "white", fontWeight: "800" },
+  ctxToggle: { flexDirection: "row", alignItems: "center", marginLeft: SPACING.x2 },
+  ctxLabel: { color: COLORS.text, marginRight: SPACING.x1, fontSize: 16 },
 
-  card: {
-    position: "absolute",
-    width: "100%",
-    height: "100%",
-    borderRadius: RADII.xxxl,
-    backgroundColor: "#FFFFFF",
+  // the animated card stage (container you rotate)
+  cardStage: {
+    marginTop: SPACING.x3,
+    alignSelf: "center",
+  },
+
+  // text/content inside CardShell (front/back)
+  cardInner: {
+    flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    backfaceVisibility: "hidden",
     paddingHorizontal: SPACING.x2,
-    ...SHADOWS.card,
   },
-  cardBack: { backgroundColor: COLORS.gold },
   textFront: {
     fontSize: 28,
     textAlign: "center",
@@ -80,27 +68,14 @@ export default StyleSheet.create({
     lineHeight: 36,
   },
   textBack: {
-    fontSize: 28,
+    fontSize: 24,
     textAlign: "center",
     color: "#0f172a",
-    fontWeight: "800",
-    lineHeight: 36,
+    fontWeight: "700",
+    lineHeight: 32,
   },
 
-  watermark: {
-    position: "absolute",
-    top: SPACING.x2,
-    left: SPACING.x2,
-    width: 120,
-    height: 80,
-    opacity: 0.08,
-  },
-  watermarkBack: {
-    transform: [{ scaleX: -1 }], // mirrored on back
-    right: SPACING.x2,
-    left: undefined,
-  },
-
+  // info panel
   infoPanel: {
     marginTop: SPACING.x2,
     backgroundColor: COLORS.bg2,
@@ -120,6 +95,7 @@ export default StyleSheet.create({
     lineHeight: 20,
   },
 
+  // bottom controls
   buttons: {
     position: "absolute",
     bottom: SPACING.x4,
@@ -131,6 +107,7 @@ export default StyleSheet.create({
     paddingVertical: SPACING.x1 + 4,
     borderRadius: RADII.xl,
     marginHorizontal: SPACING.x1,
+    ...SHADOWS.card,
   },
   btnTxt: { color: "#082F49", fontWeight: "800", fontSize: 16 },
 });
