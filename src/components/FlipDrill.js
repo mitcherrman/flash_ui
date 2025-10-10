@@ -22,7 +22,26 @@ import CardShell from "./CardShell";
 import styles from "../styles/components/FlipDrill.styles";
 
 const API_ROOT = `${API_BASE}/api/flashcards`;
-const CARD_ASPECT = 0.6; // height = width * 0.6
+
+// --- Visual tuning knobs (easy to adjust) ---
+// You can tune the button positions separately for portrait & landscape.
+const TUNE = {
+  // Card proportions & scaling
+  CARD_ASPECT: 0.60,            // height = width * aspect (portrait baseline)
+  PORTRAIT_CARD_SCALE: 0.98,     // 0.80–1.00 (smaller = smaller card in portrait)
+
+  // Landscape layout reserves space for controls below the card
+  LANDSCAPE_MIN_CARD_H: 140,     // px minimum height in landscape
+  LANDSCAPE_CONTROLS_H: 72,      // reserved space below card (landscape)
+
+  // Prev/Next absolute positioning (distance from bottom)
+  BUTTONS_BOTTOM_PORTRAIT: 50,   // ↑ raise to move higher in portrait
+  BUTTONS_BOTTOM_LANDSCAPE: 10,  // ↑ raise to move higher in landscape
+
+  // Spacing between buttons
+  BUTTONS_GAP_PORTRAIT: 10,
+  BUTTONS_GAP_LANDSCAPE: 10,
+};
 
 export default function FlipDrill({
   deckId,
@@ -37,26 +56,34 @@ export default function FlipDrill({
   const insets = useSafeAreaInsets();
   const isLandscape = width > height;
 
-  // Size
-  const BORDER = isLandscape ? 8 : 16;
+  // ——— Size calc (portrait: big card; landscape: ensure room for Prev/Next) ———
+  const H_PADDING = 16;
+  const V_PADDING = isLandscape ? 8 : 16;
+
+  const availW = width - insets.left - insets.right - H_PADDING * 2;
+  const availH = height - insets.top - insets.bottom - V_PADDING * 2;
+
   let CARD_W, CARD_H;
   if (!isLandscape) {
-    CARD_W = Math.min(900, width * 0.9);
-    CARD_H = CARD_W * CARD_ASPECT;
+    CARD_W = Math.min(900, availW * TUNE.PORTRAIT_CARD_SCALE);
+    CARD_H = Math.round(CARD_W * TUNE.CARD_ASPECT);
   } else {
-    const availW = width - (insets.left + insets.right) - BORDER * 2;
-    const availH = height - (insets.top + insets.bottom) - BORDER * 2;
-    CARD_W = Math.min(900, availW, availH / CARD_ASPECT);
-    CARD_H = CARD_W * CARD_ASPECT;
+    // In landscape, leave room for the control row
+    const hForCard = Math.max(TUNE.LANDSCAPE_MIN_CARD_H, availH - TUNE.LANDSCAPE_CONTROLS_H - 16);
+    CARD_W = Math.min(900, availW);
+    CARD_H = Math.min(hForCard, Math.round(CARD_W * TUNE.CARD_ASPECT));
+    // If card ends up too tall, clamp by height
+    CARD_W = Math.min(CARD_W, Math.round(CARD_H / TUNE.CARD_ASPECT));
   }
 
+  // ——— State ———
   const [cards, setCards] = useState([]);
   const [idx, setIdx] = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [err, setErr] = useState("");
   const [showCtx, setShowCtx] = useState(true);
 
-  const flipAnim = useRef(new Animated.Value(0)).current;   // 0 -> front, 180 -> back
+  const flipAnim = useRef(new Animated.Value(0)).current; // 0 -> front, 180 -> back
   const panX = useRef(new Animated.Value(0)).current;
 
   const startOrdinalNum = useMemo(() => {
@@ -69,7 +96,7 @@ export default function FlipDrill({
     return Number.isFinite(v) && v > 0 ? v : null;
   }, [startOrdinal]);
 
-  // flip animation – rotate the WHOLE card
+  // ——— Flip animation (rotate entire shell) ———
   useEffect(() => {
     Animated.timing(flipAnim, {
       toValue: flipped ? 180 : 0,
@@ -87,7 +114,7 @@ export default function FlipDrill({
     outputRange: ["180deg", "360deg"],
   });
 
-  // Load cards
+  // ——— Load cards ———
   useEffect(() => {
     (async () => {
       try {
@@ -126,7 +153,7 @@ export default function FlipDrill({
     })();
   }, [deckId, n, order, startOrdinalNum]);
 
-  // swipe nav
+  // ——— Swipe nav ———
   const responder = useMemo(
     () =>
       PanResponder.create({
@@ -165,7 +192,7 @@ export default function FlipDrill({
     return t.length > limit ? t.slice(0, limit - 1) + "…" : t;
   };
 
-  // Loading / error
+  // ——— Loading / error ———
   if (err) {
     return (
       <SafeAreaView style={styles.center}>
@@ -187,24 +214,45 @@ export default function FlipDrill({
   const pageLabel = typeof card.page === "number" ? `p. ${card.page}` : "";
   const contextTag = card.context || "";
 
+  // ——— TOP BAR: uncluttered (Back • centered counter • TOC) ———
   return (
-    <SafeAreaView
-      style={[
-        styles.container,
-        isLandscape && { paddingTop: BORDER, paddingBottom: BORDER },
-      ]}
-    >
-      {/* Top bar */}
-      <View style={styles.topBar}>
-        <View style={styles.leftGroup}>
+    <SafeAreaView style={[styles.container, { paddingTop: V_PADDING, paddingBottom: V_PADDING }]}>
+      <View
+        style={[
+          styles.topBar,
+          {
+            width: "92%",
+            minHeight: isLandscape ? 44 : 56,
+            alignSelf: "center",
+          },
+        ]}
+      >
+        {/* Left */}
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
           <Pressable onPress={handleBack} style={styles.backBtn}>
             <Text style={styles.backTxt}>Back</Text>
           </Pressable>
-          <Text style={styles.counter}>
-            Card {idx + 1}/{cards.length}
-          </Text>
         </View>
 
+        {/* Center (always visible; absolute centering in landscape to prevent squish) */}
+        {isLandscape ? (
+          <Text
+            style={{
+              position: "absolute",
+              left: 0,
+              right: 0,
+              textAlign: "center",
+              color: "#E6ECF0",
+              fontWeight: "800",
+            }}
+          >
+            Card {idx + 1}/{cards.length}
+          </Text>
+        ) : (
+          <Text style={styles.counter}>Card {idx + 1}/{cards.length}</Text>
+        )}
+
+        {/* Right */}
         <View style={{ flexDirection: "row", alignItems: "center" }}>
           {onOpenTOC ? (
             <Pressable onPress={onOpenTOC} style={styles.tocBtn}>
@@ -224,24 +272,19 @@ export default function FlipDrill({
               <Text style={styles.tocTxt}>TOC</Text>
             </Pressable>
           ) : null}
-          <View style={styles.ctxToggle}>
-            <Text style={styles.ctxLabel}>Show context</Text>
-            <Switch
-              value={showCtx}
-              onValueChange={setShowCtx}
-              thumbColor="#FDB515"
-              trackColor={{ true: "#FFCD00" }}
-            />
-          </View>
         </View>
       </View>
 
-      {/* Card – two shells stacked; rotate the ENTIRE shell */}
+      {/* CARD (press to flip) */}
       <Animated.View
         {...responder.panHandlers}
         style={[
-          styles.cardStage,
-          { width: CARD_W, height: CARD_H, alignSelf: "center" },
+          {
+            width: CARD_W,
+            height: CARD_H,
+            alignSelf: "center",
+            marginTop: isLandscape ? 8 : 16,
+          },
           { transform: [{ translateX: panX }] },
         ]}
       >
@@ -254,7 +297,7 @@ export default function FlipDrill({
           ]}
         >
           <CardShell width={CARD_W} height={CARD_H} variant="front">
-            <View style={styles.cardInner}>
+            <View style={local.cardInner}>
               <Text style={styles.textFront}>{card.front}</Text>
             </View>
           </CardShell>
@@ -269,7 +312,7 @@ export default function FlipDrill({
           ]}
         >
           <CardShell width={CARD_W} height={CARD_H} variant="back">
-            <View style={styles.cardInner}>
+            <View style={local.cardInner}>
               <Text style={styles.textBack}>{card.back}</Text>
             </View>
           </CardShell>
@@ -285,28 +328,61 @@ export default function FlipDrill({
         />
       </Animated.View>
 
-      {/* Info panel (hidden in native landscape) */}
+      {/* ── Info panel (wrapped, no truncation) ─────────────────────────── */}
       {!(Platform.OS !== "web" && isLandscape) && (
-        <View style={[styles.infoPanel, { width: CARD_W }]}>
-          <Text style={styles.infoLine}>
+        <View
+          style={[
+            styles.infoPanel,
+            { width: CARD_W, alignSelf: "center", marginTop: 12 },
+          ]}
+        >
+          {/* Section (wraps) */}
+          <Text style={[styles.infoLine, { flexWrap: "wrap" }]}>
             {!!sectionName && <Text style={styles.infoKey}>Section: </Text>}
             <Text style={styles.infoVal}>{sectionName || "—"}</Text>
           </Text>
 
-          <Text style={styles.infoLine}>
+          {/* Page + Context (wraps) */}
+          <Text style={[styles.infoLine, { flexWrap: "wrap" }]}>
             <Text style={styles.infoKey}>Page: </Text>
             <Text style={styles.infoVal}>{pageLabel || "—"}</Text>
             {!!contextTag && <Text style={styles.infoVal}>   •   {contextTag}</Text>}
           </Text>
 
+          {/* Toggle moved here to declutter header */}
+          <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6 }}>
+            <Text style={styles.ctxLabel}>Show context</Text>
+            <Switch
+              value={showCtx}
+              onValueChange={setShowCtx}
+              thumbColor="#FDB515"
+              trackColor={{ true: "#FFCD00" }}
+              style={{ marginLeft: 8 }}
+            />
+          </View>
+
           {showCtx && !!card.excerpt && (
-            <Text style={styles.excerpt}>"{ellipsize(card.excerpt, 360)}"</Text>
+            <Text style={[styles.excerpt, { marginTop: 6 }]}>
+              "{ellipsize(card.excerpt, 360)}"
+            </Text>
           )}
         </View>
       )}
 
-      {/* Controls */}
-      <View style={[styles.buttons, { bottom: 34 + insets.bottom }]}>
+      {/* Prev / Next — absolute, with separate portrait/landscape tuning */}
+      <View
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          flexDirection: "row",
+          justifyContent: "center",
+          gap: isLandscape ? TUNE.BUTTONS_GAP_LANDSCAPE : TUNE.BUTTONS_GAP_PORTRAIT,
+          bottom:
+            insets.bottom +
+            (isLandscape ? TUNE.BUTTONS_BOTTOM_LANDSCAPE : TUNE.BUTTONS_BOTTOM_PORTRAIT),
+        }}
+      >
         <Pressable style={styles.btn} onPress={prevCard}>
           <Text style={styles.btnTxt}>Prev</Text>
         </Pressable>
@@ -317,3 +393,13 @@ export default function FlipDrill({
     </SafeAreaView>
   );
 }
+
+const local = StyleSheet.create({
+  cardInner: {
+    flex: 1,
+    width: "100%",
+    paddingHorizontal: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+});
