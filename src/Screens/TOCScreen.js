@@ -16,6 +16,8 @@ import { API_BASE } from "../config";
 import styles from "../styles/screens/TOCScreen.styles";
 import { fetchWithCache, deckTocKey } from "../utils/cache";
 
+import TemplateBar from "../components/TemplateBar";
+import { requestTemplateOpen } from "../utils/TemplateBus";
 
 export default function TOCScreen({ route, navigation }) {
   const { deckId, returnTo = "Game2", mode = "basic" } = route.params || {};
@@ -24,29 +26,28 @@ export default function TOCScreen({ route, navigation }) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
-useEffect(() => {
-  let alive = true;
-  (async () => {
-    try {
-      setLoading(true);
-      const data = await fetchWithCache({
-        key: deckTocKey(deckId),
-        fetcher: async () => {
-          const r = await fetch(`${API_BASE}/api/flashcards/toc/?deck_id=${deckId}`);
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          return r.json();
-        },
-      });
-      if (alive) setItems(Array.isArray(data) ? data : []);
-    } catch (e) {
-      if (alive) setErr(String(e));
-    } finally {
-      if (alive) setLoading(false);
-    }
-  })();
-  return () => { alive = false; };
-}, [deckId]);
-
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        setLoading(true);
+        const data = await fetchWithCache({
+          key: deckTocKey(deckId),
+          fetcher: async () => {
+            const r = await fetch(`${API_BASE}/api/flashcards/toc/?deck_id=${deckId}`);
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.json();
+          },
+        });
+        if (alive) setItems(Array.isArray(data) ? data : []);
+      } catch (e) {
+        if (alive) setErr(String(e));
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [deckId]);
 
   const filtered = useMemo(() => {
     if (!q.trim()) return items;
@@ -67,6 +68,18 @@ useEffect(() => {
     });
   };
 
+  const goHome = () => {
+    navigation.reset({
+      index: 0,
+      routes: [{ name: "Picker", params: { deckId } }],
+    });
+  };
+
+  const openTemplate = () => {
+    // fires the TemplateBar modal without showing the bar
+    requestTemplateOpen();
+  };
+
   if (loading) {
     return (
       <SafeAreaView
@@ -80,6 +93,9 @@ useEffect(() => {
       >
         <ActivityIndicator size="large" color="#FDB515" />
         <Text style={{ color: "#E6ECF0", marginTop: 8 }}>Loading table of contents…</Text>
+
+        {/* Hidden bar so the modal is available */}
+        <TemplateBar deckId={deckId} hidden />
       </SafeAreaView>
     );
   }
@@ -97,6 +113,9 @@ useEffect(() => {
         }}
       >
         <Text style={{ color: "#FDB515" }}>{err}</Text>
+
+        {/* Hidden bar so the modal is available */}
+        <TemplateBar deckId={deckId} hidden />
       </SafeAreaView>
     );
   }
@@ -140,19 +159,38 @@ useEffect(() => {
         paddingTop: Platform.OS === "android" ? StatusBar.currentHeight || 0 : 0,
       }}
     >
+      {/* Header with Back / Home / Template */}
       <LinearGradient
         colors={["#032e5d", "#003262"]}
         style={{
-          height: 104,                // slightly taller and below the safe area
-          justifyContent: "flex-end",
+          paddingTop: 6,
           paddingHorizontal: 12,
-          paddingBottom: 8,
+          paddingBottom: 10,
           borderBottomWidth: 1,
           borderBottomColor: "#0C4A6E",
         }}
       >
-        <Text style={{ color: "#E6ECF0", fontWeight: "900", fontSize: 22 }}>Table of Contents</Text>
-        <Text style={{ color: "#94a3b8", marginTop: 4 }}>Tap to jump to a card</Text>
+        {/* Top button row */}
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <Pressable onPress={() => navigation.goBack()} style={headerBtnStyle}>
+              <Text style={headerBtnTxt}>Back</Text>
+            </Pressable>
+            <Pressable onPress={goHome} style={[headerBtnStyle, { backgroundColor: "#0ea5e9" }]}>
+              <Text style={[headerBtnTxt, { color: "white" }]}>Home</Text>
+            </Pressable>
+          </View>
+
+          <Pressable onPress={openTemplate} style={[headerBtnStyle, { backgroundColor: "#FDB515" }]}>
+            <Text style={{ color: "#032e5d", fontWeight: "800" }}>Template</Text>
+          </Pressable>
+        </View>
+
+        {/* Title + Search */}
+        <Text style={{ color: "#E6ECF0", fontWeight: "900", fontSize: 22, marginTop: 10 }}>
+          Table of Contents
+        </Text>
+        <Text style={{ color: "#94a3b8", marginTop: 2 }}>Tap to jump to a card</Text>
         <TextInput
           value={q}
           onChangeText={setQ}
@@ -177,6 +215,17 @@ useEffect(() => {
         renderItem={renderItem}
         contentContainerStyle={{ paddingVertical: 16, paddingBottom: 24 }}
       />
+
+      {/* Hidden TemplateBar: modal only */}
+      <TemplateBar deckId={deckId} hidden />
     </SafeAreaView>
   );
 }
+
+const headerBtnStyle = {
+  paddingHorizontal: 12,
+  paddingVertical: 6,
+  borderRadius: 10,
+  backgroundColor: "rgba(255,255,255,0.1)",
+};
+const headerBtnTxt = { color: "#E6ECF0", fontWeight: "800" };

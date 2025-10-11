@@ -1,19 +1,28 @@
 // src/components/TemplateBar.js
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, Pressable, Modal, ScrollView, SafeAreaView, Platform } from "react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  View,
+  Text,
+  Pressable,
+  Modal,
+  ScrollView,
+  SafeAreaView,
+  Platform,
+} from "react-native";
 import { loadTemplate } from "../utils/cache";
-import styles from "../styles/components/TemplateBar.styles";
+import { onTemplateOpen } from "../utils/TemplateBus"; // ⟵ NEW
+import s from "../styles/components/TemplateBar.styles"; // if you made the styles file earlier; otherwise inline styles remain fine
 
 export default function TemplateBar({ deckId, onHeight, hidden = false }) {
-  // ---- Hooks MUST be unconditional (avoid early returns before hooks) ----
   const [open, setOpen] = useState(false);
   const [tpl, setTpl] = useState(null);
 
-  // We keep the measured height locally so we can notify the parent via effect
-  const [measuredH, setMeasuredH] = useState(0);
-  const rafRef = useRef(null);
+  // listen for global "open template" requests
+  useEffect(() => {
+    const unsub = onTemplateOpen(() => setOpen(true));
+    return unsub;
+  }, []);
 
-  // Load cached template once per deck
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -24,20 +33,8 @@ export default function TemplateBar({ deckId, onHeight, hidden = false }) {
         if (mounted) setTpl(null);
       }
     })();
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, [deckId]);
-
-  // If hidden, report 0 height to parent (defer via RAF to avoid “setState while rendering”)
-  useEffect(() => {
-    if (!onHeight) return;
-    cancelAnimationFrame(rafRef.current);
-    rafRef.current = requestAnimationFrame(() => {
-      onHeight(hidden ? 0 : measuredH);
-    });
-    return () => cancelAnimationFrame(rafRef.current);
-  }, [hidden, measuredH, onHeight]);
 
   const sectionCount = tpl?.sections?.length || 0;
   const itemCount = useMemo(() => {
@@ -45,65 +42,109 @@ export default function TemplateBar({ deckId, onHeight, hidden = false }) {
     return tpl.sections.reduce((acc, s) => acc + (s.items?.length || 0), 0);
   }, [tpl]);
 
-  // If hidden, render nothing (hooks above still ran, so no “fewer hooks” error)
-  if (hidden) return null;
-
   return (
     <>
-      {/* Bottom bar */}
-      <SafeAreaView
-        style={styles.bar}
-        onLayout={(e) => {
-          // Do NOT call onHeight here; store locally, then notify in useEffect
-          const h = e.nativeEvent.layout.height || 0;
-          if (h !== measuredH) setMeasuredH(h);
-        }}
-      >
-        <View style={styles.row}>
-          <Pressable onPress={() => setOpen(true)} style={styles.btn}>
-            <Text style={styles.btnTxt}>
-              Template {sectionCount ? `(${sectionCount} sec · ${itemCount} pts)` : ""}
-            </Text>
-          </Pressable>
+      {/* Bottom bar (skip when hidden) */}
+      {!hidden && (
+        <SafeAreaView
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "#062B52",
+            borderTopWidth: 1,
+            borderTopColor: "rgba(255,255,255,0.08)",
+            paddingHorizontal: 16,
+            paddingTop: 10,
+            paddingBottom: Platform.OS === "web" ? 12 : 6,
+            zIndex: 50,
+          }}
+          onLayout={(e) => onHeight?.(e.nativeEvent.layout.height)}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, justifyContent: "center" }}>
+            <Pressable
+              onPress={() => setOpen(true)}
+              style={{
+                backgroundColor: "#FDB515",
+                paddingHorizontal: 16,
+                paddingVertical: 10,
+                borderRadius: 12,
+                shadowColor: "#000",
+                shadowOpacity: 0.15,
+                shadowRadius: 6,
+              }}
+            >
+              <Text style={{ color: "#032e5d", fontWeight: "800" }}>
+                Template {sectionCount ? `(${sectionCount} sec · ${itemCount} pts)` : ""}
+              </Text>
+            </Pressable>
 
-          {!tpl && (
-            <Text style={styles.hint}>
-              No template cached for this deck (build once to populate)
-            </Text>
-          )}
-        </View>
-      </SafeAreaView>
+            {!tpl && (
+              <Text style={{ color: "#93c5fd", opacity: 0.9 }}>
+                No template cached for this deck (build once to populate)
+              </Text>
+            )}
+          </View>
+        </SafeAreaView>
+      )}
 
-      {/* Full-screen modal viewer */}
+      {/* Full-screen modal viewer (works even when hidden) */}
       <Modal visible={open} animationType="slide" onRequestClose={() => setOpen(false)}>
-        <SafeAreaView style={styles.modalRoot}>
-          <View style={styles.modalTop}>
-            <Text style={styles.modalTitle}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: "#001f3f" }}>
+          <View
+            style={{
+              paddingHorizontal: 16,
+              paddingVertical: 12,
+              borderBottomWidth: 1,
+              borderBottomColor: "rgba(255,255,255,0.08)",
+              backgroundColor: "#032e5d",
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <Text style={{ color: "#fff", fontSize: 18, fontWeight: "800" }}>
               {tpl?.title || `Deck ${deckId}`} • Template
             </Text>
-            <Pressable onPress={() => setOpen(false)} style={styles.modalCloseBtn}>
-              <Text style={styles.modalCloseTxt}>Close</Text>
+            <Pressable
+              onPress={() => setOpen(false)}
+              style={{ backgroundColor: "#FDB515", paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 }}
+            >
+              <Text style={{ color: "#032e5d", fontWeight: "800" }}>Close</Text>
             </Pressable>
           </View>
 
-          <ScrollView contentContainerStyle={styles.modalScroll}>
+          <ScrollView contentContainerStyle={{ padding: 16 }}>
             {tpl?.sections?.length ? (
               tpl.sections.map((s, idx) => (
-                <View key={`${idx}-${s.title}`} style={styles.secCard}>
-                  <Text style={styles.secTitle}>{s.title || "Section"}</Text>
-                  <Text style={styles.secMeta}>
+                <View
+                  key={`${idx}-${s.title}`}
+                  style={{
+                    backgroundColor: "rgba(255,255,255,0.04)",
+                    borderRadius: 14,
+                    padding: 14,
+                    marginBottom: 12,
+                  }}
+                >
+                  <Text style={{ color: "#fff", fontWeight: "800", fontSize: 16, marginBottom: 4 }}>
+                    {s.title || "Section"}
+                  </Text>
+                  <Text style={{ color: "#93c5fd", marginBottom: 8 }}>
                     Pages {s.page_start ?? "?"}–{s.page_end ?? "?"} • {s.items?.length || 0} points
                   </Text>
                   {(s.items || []).map((it, j) => (
-                    <View key={j} style={styles.itemRow}>
-                      <Text style={styles.itemTerm}>• {it.term}</Text>
-                      {!!it.definition && <Text style={styles.itemDef}>{it.definition}</Text>}
+                    <View key={j} style={{ marginBottom: 8 }}>
+                      <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>• {it.term}</Text>
+                      {!!it.definition && (
+                        <Text style={{ color: "#cbd5e1" }}>{it.definition}</Text>
+                      )}
                     </View>
                   ))}
                 </View>
               ))
             ) : (
-              <Text style={styles.noSec}>
+              <Text style={{ color: "#93c5fd" }}>
                 No sections available. Build a deck to generate the template.
               </Text>
             )}
