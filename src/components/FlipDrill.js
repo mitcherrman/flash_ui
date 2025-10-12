@@ -369,18 +369,28 @@ export default function FlipDrill({
         </View>
       )}
 
-      {/* Prev / Next — absolute, with separate portrait/landscape tuning */}
+      {/* Prev / Next — absolute, with web-safe positioning */}
       <View
         style={{
-          position: "absolute",
+          position: Platform.OS === "web" ? "relative" : "absolute",
           left: 0,
           right: 0,
           flexDirection: "row",
           justifyContent: "center",
-          gap: isLandscape ? TUNE.BUTTONS_GAP_LANDSCAPE : TUNE.BUTTONS_GAP_PORTRAIT,
+          gap: isLandscape
+            ? TUNE.BUTTONS_GAP_LANDSCAPE
+            : TUNE.BUTTONS_GAP_PORTRAIT,
+          marginTop:
+            Platform.OS === "web"
+              ? 24 // on desktop, space below card
+              : 0,
           bottom:
-            insets.bottom +
-            (isLandscape ? TUNE.BUTTONS_BOTTOM_LANDSCAPE : TUNE.BUTTONS_BOTTOM_PORTRAIT),
+            Platform.OS !== "web"
+              ? insets.bottom +
+                (isLandscape
+                  ? TUNE.BUTTONS_BOTTOM_LANDSCAPE
+                  : TUNE.BUTTONS_BOTTOM_PORTRAIT)
+              : undefined,
         }}
       >
         <Pressable style={styles.btn} onPress={prevCard}>

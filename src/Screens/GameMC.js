@@ -32,10 +32,19 @@ export default function GameMC({ route, navigation }) {
     window.matchMedia("(hover: hover)").matches;
   const isDesktopWeb = isWeb && (width >= 1024 || canHover);
 
-  // sizes
-  const CONTENT_MAX_W = isDesktopWeb ? Math.min(1200, width * 0.92) : Math.min(960, width * 0.94);
-  const CARD_W = Math.min(720, CONTENT_MAX_W);
-  const CARD_H = isLandscape
+  // sizes — desktop gets larger canvas + card
+  const CONTENT_MAX_W = isDesktopWeb
+    ? Math.min(1400, Math.floor(width * 0.92))
+    : Math.min(960, Math.floor(width * 0.94));
+
+  const CARD_W = isDesktopWeb
+    ? Math.min(1000, Math.floor(CONTENT_MAX_W * 0.92))
+    : Math.min(720, CONTENT_MAX_W);
+
+  // small banner on mobile landscape, larger on desktop
+  const CARD_H = isDesktopWeb
+    ? Math.max(120, Math.min(240, Math.floor(height * 0.22)))
+    : isLandscape
     ? Math.max(70, Math.min(110, Math.floor(height * 0.12)))
     : Math.floor(CARD_W * 0.6);
 
@@ -197,9 +206,9 @@ export default function GameMC({ route, navigation }) {
         style={[
           s.topBar,
           {
-            paddingTop: (isLandscape ? 4 : 8),
-            paddingHorizontal: 10,
-            minHeight: isLandscape ? 48 : 60, // give portrait a bit more room
+            paddingTop: isDesktopWeb ? 10 : isLandscape ? 4 : 8,
+            paddingHorizontal: isDesktopWeb ? 18 : 10,
+            minHeight: isLandscape ? 48 : 60,
           },
         ]}
       >
@@ -230,24 +239,25 @@ export default function GameMC({ route, navigation }) {
 
         {/* Center title */}
         {isLandscape ? (
-          // keep perfect centering in landscape
           <Text
             style={{
               position: "absolute",
               left: 0,
               right: 0,
               textAlign: "center",
-              top: insets.top + 6,
+              top: insets.top + (isDesktopWeb ? 2 : 6),
               color: "#E6ECF0",
               fontWeight: "800",
+              fontSize: isDesktopWeb ? 18 : 16,
             }}
           >
             Card {idx + 1}/{total}
           </Text>
         ) : (
-          // flex centering in portrait so nothing gets squished
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-            <Text style={s.header}>Card {idx + 1}/{total}</Text>
+            <Text style={[s.header, isDesktopWeb && { fontSize: 18 }]}>
+              Card {idx + 1}/{total}
+            </Text>
           </View>
         )}
 
@@ -283,8 +293,12 @@ export default function GameMC({ route, navigation }) {
         <View style={{ alignItems: "center" }}>
           <CardShell width={CARD_W} height={CARD_H} variant="front">
             <Text
-              style={[s.question, isLandscape && { fontSize: 15 }]}
-              numberOfLines={isLandscape ? 1 : 3}
+              style={[
+                s.question,
+                isLandscape && !isDesktopWeb && { fontSize: 15 },
+                isDesktopWeb && { fontSize: 22, lineHeight: 28 },
+              ]}
+              numberOfLines={isDesktopWeb ? 2 : isLandscape ? 1 : 3}
               adjustsFontSizeToFit
               minimumFontScale={0.65}
             >
@@ -293,8 +307,16 @@ export default function GameMC({ route, navigation }) {
           </CardShell>
         </View>
 
-        <View style={[s.optsWrap, { marginTop: isLandscape ? 8 : 12 }]}>
-          <View style={[s.opts, { width: "100%" }]}>
+        <View style={[s.optsWrap, { marginTop: isLandscape ? 10 : 14, alignItems: "center" }]}>
+          <View
+            style={[
+              s.opts,
+              {
+                width: "100%",
+                maxWidth: isDesktopWeb ? Math.min(CONTENT_MAX_W, CARD_W) : "100%",
+              },
+            ]}
+          >
             {options.map((opt, i) => {
               const isPicked = picked === i;
               const isCorrect = i === correctIndex;
@@ -306,11 +328,18 @@ export default function GameMC({ route, navigation }) {
                   onPress={() => pick(i)}
                   style={[
                     s.opt,
-                    isLandscape && { minHeight: 40, paddingVertical: 8 },
+                    isDesktopWeb && { minHeight: 56, paddingVertical: 14 },
+                    isLandscape && !isDesktopWeb && { minHeight: 40, paddingVertical: 8 },
                     stateStyles[state],
                   ]}
                 >
-                  <Text style={[s.optText, isLandscape && { fontSize: 14, lineHeight: 18 }]}>
+                  <Text
+                    style={[
+                      s.optText,
+                      isDesktopWeb && { fontSize: 18, lineHeight: 24 },
+                      isLandscape && !isDesktopWeb && { fontSize: 14, lineHeight: 18 },
+                    ]}
+                  >
                     {opt}
                   </Text>
                 </Pressable>
@@ -318,7 +347,7 @@ export default function GameMC({ route, navigation }) {
             })}
           </View>
 
-          <View style={[s.controls, { marginBottom: 12 + insets.bottom }]}>
+          <View style={[s.controls, { marginBottom: 16 + insets.bottom }]}>
             <Pressable onPress={prev} style={s.btn}>
               <Text style={s.btnTxt}>Previous</Text>
             </Pressable>
