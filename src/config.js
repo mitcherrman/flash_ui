@@ -31,6 +31,7 @@
 // src/config.js
 import { Platform, NativeModules } from "react-native";
 import Constants from "expo-constants";
+import { WEB_API_BASE } from "./env";
 
 function guessHostFromScriptURL() {
   // e.g. "http://10.0.0.139:8081/index.bundle?..."
@@ -54,6 +55,6 @@ function getLanHost() {
 }
 
 export const API_BASE = Platform.select({
-  web: "http://127.0.0.1:8000",
+  web: WEB_API_BASE ?? "http://127.0.0.1:8000",
   default: `http://${getLanHost()}:8000`,
 });
