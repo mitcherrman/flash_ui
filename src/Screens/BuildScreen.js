@@ -11,7 +11,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { Animated } from "react-native";
 import { API_BASE } from "../config";
-import { saveLastDeck, saveTemplate } from "../utils/cache";
+import { saveLastDeck /*, saveTemplate*/ } from "../utils/cache";
 import styles from "../styles/screens/BuildScreen.styles";
 
 function formatMs(ms) {
@@ -22,20 +22,32 @@ function formatMs(ms) {
 }
 
 export default function BuildScreen({ route, navigation }) {
-  const { file, cardsWanted = 12, allocations = [] } = route.params || {};
+  // Expect: file (DocumentPicker asset), cardsWanted, allocations, coverage?
+  const {
+    file,
+    cardsWanted = 12,
+    allocations = [],
+    coverage = "even", // optional; default "even"
+  } = route.params || {};
 
-  const [phase, setPhase] = useState("upload");
+  const [phase, setPhase] = useState("upload"); // upload | build | error
   const [errMsg, setErrMsg] = useState("");
   const [filename, setFilename] = useState(file?.name ?? "document.pdf");
 
   const [elapsedMs, setElapsedMs] = useState(0);
   const t0Ref = useRef(0);
   const timerRef = useRef(null);
+  const pollRef = useRef(null);
+  const jobIdRef = useRef(null);
+
+  // Progress text from server (via /status)
+  const [progressText, setProgressText] = useState("");
 
   const onHome = () => {
     navigation.reset({ index: 0, routes: [{ name: "Upload" }] });
   };
 
+  // Cute pulse
   const pulse = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     const loop = Animated.loop(
@@ -50,9 +62,15 @@ export default function BuildScreen({ route, navigation }) {
   const scale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.12] });
   const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] });
 
+  // Kick off async build, then poll status
   useEffect(() => {
     (async () => {
       try {
+        if (!file) {
+          throw new Error("No file provided.");
+        }
+
+        // 1) Build FormData for /build/deck/
         const fd = new FormData();
         const name = file?.name ?? "document.pdf";
         const mime = file?.mimeType ?? "application/pdf";
@@ -67,10 +85,12 @@ export default function BuildScreen({ route, navigation }) {
 
         fd.append("deck_name", name.replace(/\.pdf$/i, ""));
         fd.append("cards_wanted", String(cardsWanted || 12));
+        fd.append("coverage", String(coverage || "even"));
         if (allocations?.length) {
           fd.append("allocations", JSON.stringify(allocations));
         }
 
+        // 2) Start timers
         t0Ref.current = Date.now();
         clearInterval(timerRef.current);
         timerRef.current = setInterval(() => {
@@ -78,60 +98,91 @@ export default function BuildScreen({ route, navigation }) {
         }, 250);
 
         setPhase("upload");
-        const url = `${API_BASE}/api/flashcards/generate/`;
-        const res = await fetch(url, { method: "POST", body: fd });
 
-        if (!res.ok) {
+        // 3) POST → /api/flashcards/build/deck/
+        const startUrl = `${API_BASE}/api/flashcards/build/deck/`;
+        const startRes = await fetch(startUrl, { method: "POST", body: fd });
+        if (!startRes.ok) {
           let details = "";
           try {
-            const j = await res.json();
-            details = j?.detail || JSON.stringify(j);
+            const j = await startRes.json();
+            details = j?.detail || j?.error || JSON.stringify(j);
           } catch {
-            details = await res.text();
+            details = await startRes.text();
           }
-          throw new Error(`HTTP ${res.status} – ${String(details).slice(0, 400)}`);
+          throw new Error(`Start build failed (HTTP ${startRes.status}) – ${String(details).slice(0, 400)}`);
         }
+        const { job_id } = await startRes.json();
+        if (!job_id) throw new Error("Server did not return a job_id.");
+        jobIdRef.current = job_id;
 
+        // Switch to 'build' phase
         setPhase("build");
-        const json = await res.json();
 
-        const buildMsMeasured = Date.now() - t0Ref.current;
-        clearInterval(timerRef.current);
+        // 4) Poll status until SUCCESS/FAILURE
+        const poll = async () => {
+          if (!jobIdRef.current) return;
+          const statusUrl = `${API_BASE}/api/flashcards/build/deck/status/${jobIdRef.current}/`;
+          const sRes = await fetch(statusUrl);
+          if (!sRes.ok) return; // transient network issues: just try next tick
+          const sJson = await sRes.json();
 
-        if (Array.isArray(json.warnings) && json.warnings.length) {
-          Alert.alert("Some sections had less material", json.warnings.join("\n\n"), [{ text: "OK" }]);
-        }
+          // Server may return {status, progress?, result?, error?}
+          setProgressText(sJson?.progress || "");
 
-        const serverTotal = json?.metrics?.total_ms;
-        const buildMs = typeof serverTotal === "number" ? serverTotal : buildMsMeasured;
+          if (sJson.status === "SUCCESS" && sJson.result?.deck_id) {
+            // stop timers
+            clearInterval(timerRef.current);
+            clearInterval(pollRef.current);
 
-        // Go to picker immediately so the UI isn’t blocked by storage writes
-        navigation.reset({
-          index: 0,
-          routes: [{ name: "Picker", params: { deckId: json.deck_id, buildMs } }],
-        });
+            const buildMsMeasured = Date.now() - t0Ref.current;
+            const deckId = sJson.result.deck_id;
+            const cardsCount = sJson.result.cards_count ?? null;
 
-        // Save meta + template in the background
-        setTimeout(() => {
-          saveLastDeck({
-            deckId: json.deck_id,
-            name: name.replace(/\.pdf$/i, ""),
-            cardsCount: json.cards_created ?? null,
-            buildMs,
-            metrics: json?.metrics ?? null,
-          }).catch(() => {});
-          if (json?.template) {
-            saveTemplate(json.deck_id, json.template).catch(() => {});
+            // Navigate right away
+            navigation.reset({
+              index: 0,
+              routes: [{ name: "Picker", params: { deckId, buildMs: buildMsMeasured } }],
+            });
+
+            // Save deck meta in the background (no template here; template is handled earlier)
+            setTimeout(() => {
+              saveLastDeck({
+                deckId,
+                name: name.replace(/\.pdf$/i, ""),
+                cardsCount,
+                buildMs: buildMsMeasured,
+                metrics: null,
+              }).catch(() => {});
+            }, 0);
+
+          } else if (sJson.status === "FAILURE") {
+            // stop timers
+            clearInterval(timerRef.current);
+            clearInterval(pollRef.current);
+            const msg = sJson?.error || "Deck build failed.";
+            setErrMsg(msg);
+            setPhase("error");
           }
-        }, 0);
+          // else: PENDING / STARTED → keep polling
+        };
+
+        clearInterval(pollRef.current);
+        pollRef.current = setInterval(poll, 1200);
+        // also do an immediate first poll for faster feedback
+        poll();
       } catch (err) {
         clearInterval(timerRef.current);
+        clearInterval(pollRef.current);
         setErrMsg(err?.message ?? String(err));
         setPhase("error");
       }
     })();
 
-    return () => clearInterval(timerRef.current);
+    return () => {
+      clearInterval(timerRef.current);
+      clearInterval(pollRef.current);
+    };
   }, []);
 
   const headline =
@@ -141,6 +192,7 @@ export default function BuildScreen({ route, navigation }) {
       ? "Uploading your PDF…"
       : "Building your deck…";
 
+  // UI
   return (
     <View style={styles.container}>
       <LinearGradient colors={["#032e5d", "#003262"]} style={styles.topGrad} />
@@ -160,6 +212,13 @@ export default function BuildScreen({ route, navigation }) {
               <View style={[styles.progressDot, phase === "upload" ? styles.dotIdle : styles.dotActive]} />
               <Text style={styles.progressLabel}>Generate</Text>
             </View>
+
+            {/* server progress (optional) */}
+            {!!progressText && (
+              <Text style={{ color:"#93c5fd", fontWeight:"800", marginTop: 6 }} numberOfLines={2}>
+                {progressText}
+              </Text>
+            )}
 
             <Text style={{ color:"#93c5fd", fontWeight:"800", marginTop: 8 }}>
               Elapsed: {formatMs(elapsedMs)}
