@@ -1,6 +1,6 @@
 // src/components/CardShell.js
 import React from "react";
-import { View, StyleSheet, Image } from "react-native";
+import { View, StyleSheet, Image, Platform } from "react-native";
 
 const BEAR = require("../../assets/BEARlogo.png");
 
@@ -20,55 +20,70 @@ export default function CardShell({
         {
           width,
           height,
-          backgroundColor: isBack ? "#FDB515" : "#FFFFFF",
+          backgroundColor: "#FFFFFF",
         },
         style,
       ]}
     >
-      {/* Full-bleed watermark: centered + overscaled so the visible bear covers the card */}
+      {/* watermark (very subtle) */}
       <View style={styles.watermarkWrap} pointerEvents="none">
         <Image
           source={BEAR}
-          style={[styles.watermarkImg, isBack && styles.watermarkImgBack]}
+          style={[
+            styles.watermarkImg,
+            isBack && styles.watermarkImgBack,
+          ]}
           resizeMode="contain"
         />
       </View>
 
-      {/* Foreground content */}
       <View style={styles.inner}>{children}</View>
     </View>
   );
 }
 
-const RADIUS = 24;
+const RADIUS = 22;
 
 const styles = StyleSheet.create({
   shell: {
     borderRadius: RADIUS,
-    overflow: "hidden", // clip to rounded corners
-    shadowColor: "#000",
-    shadowOpacity: 0.18,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 6,
+    overflow: "hidden",
+
+    // iOS-like separator border
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(60,60,67,0.18)",
+
+    // soft shadow (native)
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOpacity: 0.08,
+        shadowRadius: 18,
+        shadowOffset: { width: 0, height: 10 },
+      },
+      android: {
+        elevation: 2,
+      },
+      web: {
+        boxShadow: "0 14px 26px rgba(0,0,0,0.10)",
+      },
+    }),
   },
 
-  // A full-card absolute layer that centers the watermark image
   watermarkWrap: {
     ...StyleSheet.absoluteFillObject,
     alignItems: "center",
     justifyContent: "center",
   },
 
-  // Overscale so the visible bear covers the card even if the PNG has padding
-  // Tweak 135–160% to taste
   watermarkImg: {
     width: "120%",
     height: "120%",
-    opacity: 0.12,
+    opacity: 0.06, // lower = more iOS subtle
   },
+
   watermarkImgBack: {
-    transform: [{ scaleX: -1 }], // mirror the bear on the back
+    transform: [{ scaleX: -1 }],
   },
 
   inner: {

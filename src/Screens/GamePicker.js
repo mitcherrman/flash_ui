@@ -1,14 +1,24 @@
 // src/Screens/GamePicker.js
 //
-// Aesthetic game selection screen (blocky cards, Berkeley palette)
+// Game selection screen
 // + Export: web → HTML download (printable cut-out cards)
 //           native → PDF share via expo-print
 
 import React, { useEffect, useState } from "react";
-import { View, Text, Pressable, ScrollView, Platform, Alert, Modal, ActivityIndicator } from "react-native";
+import {
+  View,
+  Text,
+  Pressable,
+  ScrollView,
+  Platform,
+  Alert,
+  Modal,
+  ActivityIndicator,
+} from "react-native";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system";
+
 import { API_BASE } from "../config";
 import { deckToPrintableHTML, saveHTML } from "../utils/exportHTML";
 import {
@@ -17,8 +27,9 @@ import {
   deckHandKey,
   deckTocKey,
   loadLastDeck,
-  loadTemplate,           // ← NEW
+  loadTemplate,
 } from "../utils/cache";
+
 import styles from "../styles/screens/GamePicker.styles";
 
 const API_ROOT = `${API_BASE}/api/flashcards`;
@@ -44,7 +55,6 @@ function buildTemplateFromCards(cards = [], title = "Deck") {
   let ordinal = 1;
 
   for (const [secTitle, arr] of bySection.entries()) {
-    // doc order: page asc, then original order if present
     arr.sort((a, b) => {
       const pa = Number.isFinite(a.page) ? a.page : 10 ** 9;
       const pb = Number.isFinite(b.page) ? b.page : 10 ** 9;
@@ -52,7 +62,9 @@ function buildTemplateFromCards(cards = [], title = "Deck") {
       return 0;
     });
 
-    const pages = arr.map((x) => (Number.isFinite(x.page) ? x.page : null)).filter((x) => x != null);
+    const pages = arr
+      .map((x) => (Number.isFinite(x.page) ? x.page : null))
+      .filter((x) => x != null);
     const ps = pages.length ? Math.min(...pages) : 1;
     const pe = pages.length ? Math.max(...pages) : ps;
 
@@ -61,12 +73,11 @@ function buildTemplateFromCards(cards = [], title = "Deck") {
       const term = (c.front || "").trim();
       const definition = (c.back || "").trim();
       const page = Number.isFinite(c.page) ? c.page : ps;
-      const line = `${term}: ${definition}`;
       const item = {
         type: "concept",
         term,
         definition,
-        source_excerpt: line,
+        source_excerpt: `${term}: ${definition}`,
         page,
         ordinal,
       };
@@ -110,7 +121,6 @@ export default function GamePicker({ route, navigation }) {
   const [tplLoading, setTplLoading] = useState(false);
   const [template, setTemplate] = useState(null);
 
-  // If we came here from a cold start (resume), read cached meta to get build time
   useEffect(() => {
     (async () => {
       if (buildMs != null) return;
@@ -126,6 +136,7 @@ export default function GamePicker({ route, navigation }) {
     await delCache(deckTocKey(deckId));
     Alert.alert("Cache", "Cleared cache for this deck.");
   }
+
   async function clearAll() {
     await clearAllCache();
     Alert.alert("Cache", "Cleared ALL cached decks/TOCs.");
@@ -141,7 +152,6 @@ export default function GamePicker({ route, navigation }) {
     return r.json();
   }
 
-  // Web-friendly: downloads an .html you can print (duplex, flip long edge)
   async function downloadPrintable() {
     try {
       const cards = await fetchCardsDocOrder(deckId);
@@ -153,10 +163,10 @@ export default function GamePicker({ route, navigation }) {
     }
   }
 
-  // Native-friendly: renders the same HTML to a PDF and opens share sheet
   async function exportDeck() {
     try {
       setBusy(true);
+
       const cards = await fetchCardsDocOrder(deckId);
       const deckName = `Deck ${deckId}`;
       const html = deckToPrintableHTML({ deckName, cards });
@@ -183,10 +193,10 @@ export default function GamePicker({ route, navigation }) {
     }
   }
 
-  // ---- NEW: Template viewer ----
   async function onViewTemplate() {
     try {
       setTplLoading(true);
+
       // 1) Try local cached template (saved by BuildScreen if backend returned one)
       let tpl = await loadTemplate(deckId);
 
@@ -201,8 +211,9 @@ export default function GamePicker({ route, navigation }) {
       }
 
       setTemplate(tpl);
-      // Print pretty JSON to console for quick dev inspection
-      try { console.log("Template for deck", deckId, JSON.stringify(tpl, null, 2)); } catch {}
+      try {
+        console.log("Template for deck", deckId, JSON.stringify(tpl, null, 2));
+      } catch {}
 
       setShowTpl(true);
     } catch (e) {
@@ -240,39 +251,36 @@ export default function GamePicker({ route, navigation }) {
         <Card
           title="Game 2 — Mastery"
           subtitle="Short-answer drill"
-          onPress={() =>
-            navigation.navigate("Game2", { deckId, mode: "basic", order: "doc" })
-          }
+          onPress={() => navigation.navigate("Game2", { deckId, mode: "basic", order: "doc" })}
         />
         <Card
           title="Game 3 — Multiple Choice"
           subtitle="Answer with distractors"
-          onPress={() =>
-            navigation.navigate("GameMC", { deckId, mode: "mc", order: "doc" })
-          }
+          onPress={() => navigation.navigate("GameMC", { deckId, mode: "mc", order: "doc" })}
+        />
+        {/* NEW: Left/Right picker game */}
+        <Card
+          title="Game 4 — Left / Right"
+          subtitle="Swipe to choose between two prompts"
+          onPress={() => navigation.navigate("GameLR", { deckId, mode: "lr", order: "doc", n: "all" })}
         />
       </View>
 
       <Pressable
         style={styles.tocLink}
-        onPress={() =>
-          navigation.navigate("TOC", { deckId, returnTo: "Game2", mode: "basic" })
-        }
+        onPress={() => navigation.navigate("TOC", { deckId, returnTo: "Game2", mode: "basic" })}
       >
         <Text style={styles.tocTxt}>Open Table of Contents</Text>
       </Pressable>
 
-      <Pressable
-        style={styles.secondaryBtn}
-        onPress={downloadPrintable}
-        disabled={busy}
-      >
+      <Pressable style={styles.secondaryBtn} onPress={downloadPrintable} disabled={busy}>
         <Text style={styles.secondaryTxt}>Download printable cards (HTML)</Text>
       </Pressable>
 
-      {/* NEW: View Template button (opens modal and also logs pretty JSON) */}
       <Pressable style={styles.secondaryBtn} onPress={onViewTemplate} disabled={tplLoading}>
-        <Text style={styles.secondaryTxt}>{tplLoading ? "Loading template…" : "View study template"}</Text>
+        <Text style={styles.secondaryTxt}>
+          {tplLoading ? "Loading template…" : "View study template"}
+        </Text>
       </Pressable>
 
       <Pressable style={styles.devBtn} onPress={clearDeckCache}>
@@ -311,17 +319,30 @@ export default function GamePicker({ route, navigation }) {
                 ) : (
                   <>
                     {(template.sections || []).map((sec, i) => (
-                      <View key={`${i}-${sec.title}`} style={{ backgroundColor: "#083863", marginBottom: 12, borderRadius: 12, padding: 12 }}>
+                      <View
+                        key={`${i}-${sec.title}`}
+                        style={{
+                          backgroundColor: "#083863",
+                          marginBottom: 12,
+                          borderRadius: 12,
+                          padding: 12,
+                        }}
+                      >
                         <Text style={{ color: "#fff", fontWeight: "800", fontSize: 16 }}>
                           {sec.title || "Section"}
                           <Text style={{ color: "#93c5fd", fontWeight: "600" }}>
-                            {`  •  p.${sec.page_start ?? "?"}${sec.page_end && sec.page_end !== sec.page_start ? `–${sec.page_end}` : ""}`}
+                            {`  •  p.${sec.page_start ?? "?"}${
+                              sec.page_end && sec.page_end !== sec.page_start
+                                ? `–${sec.page_end}`
+                                : ""
+                            }`}
                           </Text>
                         </Text>
                         <View style={{ height: 6 }} />
                         {(sec.items || []).slice(0, 8).map((it, j) => (
                           <Text key={j} style={{ color: "#e5f0ff", marginBottom: 6 }}>
-                            {it.term ? `• ${it.term}` : "•"}{it.definition ? `: ${it.definition}` : ""}
+                            {it.term ? `• ${it.term}` : "•"}
+                            {it.definition ? `: ${it.definition}` : ""}
                           </Text>
                         ))}
                         {(sec.items || []).length > 8 ? (
@@ -334,12 +355,21 @@ export default function GamePicker({ route, navigation }) {
                     <View style={{ height: 8 }} />
                     <Pressable
                       onPress={() => {
-                        try { console.log("Template JSON", JSON.stringify(template, null, 2)); } catch {}
+                        try {
+                          console.log("Template JSON", JSON.stringify(template, null, 2));
+                        } catch {}
                         Alert.alert("Template", "Printed full JSON to the console.");
                       }}
-                      style={{ backgroundColor: "#FDB515", padding: 12, borderRadius: 10, alignItems: "center" }}
+                      style={{
+                        backgroundColor: "#FDB515",
+                        padding: 12,
+                        borderRadius: 10,
+                        alignItems: "center",
+                      }}
                     >
-                      <Text style={{ color: "#072A46", fontWeight: "800" }}>Print full JSON to console</Text>
+                      <Text style={{ color: "#072A46", fontWeight: "800" }}>
+                        Print full JSON to console
+                      </Text>
                     </Pressable>
                   </>
                 )}
@@ -348,7 +378,15 @@ export default function GamePicker({ route, navigation }) {
           </View>
 
           <View style={{ padding: 12 }}>
-            <Pressable onPress={() => setShowTpl(false)} style={{ backgroundColor: "#0ea5e9", padding: 12, borderRadius: 10, alignItems: "center" }}>
+            <Pressable
+              onPress={() => setShowTpl(false)}
+              style={{
+                backgroundColor: "#0ea5e9",
+                padding: 12,
+                borderRadius: 10,
+                alignItems: "center",
+              }}
+            >
               <Text style={{ color: "white", fontWeight: "800" }}>Close</Text>
             </Pressable>
           </View>
