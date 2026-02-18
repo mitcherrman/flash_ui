@@ -12,6 +12,7 @@ import GameLRScreen from "../Screens/GameLRScreen";
 import Leaderboard from "../Screens/Leaderboard";
 import CustomDeckScreen from "../Screens/CustomDeckScreen";
 import CreateProfileScreen from "../Screens/CreateProfileScreen";
+import HomeProfileScreen from "../Screens/HomeProfileScreen";
 
 
 
@@ -34,6 +35,7 @@ export default function RootStack() {
       <Stack.Screen name="Leaderboard" component={Leaderboard} />
       <Stack.Screen name="CustomDeck" component={CustomDeckScreen} />
       <Stack.Screen name="CreateProfile" component={CreateProfileScreen} />
+      <Stack.Screen name="HomeProfile" component={HomeProfileScreen} />
     </Stack.Navigator>
   );
 }

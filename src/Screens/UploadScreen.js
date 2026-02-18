@@ -255,7 +255,7 @@ export default function UploadScreen({ navigation }) {
         </View>
 
         <Pressable
-          onPress={() => navigation.navigate("CreateProfile")}
+          onPress={() => navigation.navigate("HomeProfile")}
           style={{
           marginTop: 12,
           backgroundColor: "white",
