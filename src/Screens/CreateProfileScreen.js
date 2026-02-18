@@ -42,24 +42,73 @@ export default function CreateProfileScreen({ navigation }) {
     return n && a && l;
   }, [name, age, location]);
 
-  async function onSave() {
-    if (!canSave) return;
+async function onSave() {
+  if (!canSave) return;
 
-    const parsedAge = age.trim() === "" ? null : Number(age);
-    if (parsedAge != null && (!Number.isFinite(parsedAge) || parsedAge < 0 || parsedAge > 120)) {
-      Alert.alert("Invalid age", "Please enter a valid age between 0 and 120.");
-      return;
+  const parsedAge = age.trim() === "" ? null : Number(age);
+  if (parsedAge != null && (!Number.isFinite(parsedAge) || parsedAge < 0 || parsedAge > 120)) {
+    Alert.alert("Invalid age", "Please enter a valid age between 0 and 120.");
+    return;
+  }
+
+  try {
+    // 2. Make the Network Request
+    const response = await fetch(`${API_URL}/users/`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username: name,
+        age_group: String(parsedAge), // Mapping 'age' to 'age_group' expected by backend
+        location: location,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to save to server");
     }
 
+    const userData = await response.json();
+
+    // 3. Save locally including the ID returned from the database
     await saveProfile({
+      id: userData.id, // Now you have the DB ID for comparisons later
       name,
       age: parsedAge,
       location,
     });
 
-    Alert.alert("Saved", "Your profile has been saved.");
+    Alert.alert("Saved", "Your profile has been created and synced.");
     navigation.goBack();
+    
+  } catch (error) {
+    console.error(error);
+    Alert.alert("Connection Error", "Could not connect to the server. Profile saved locally only.");
+    
+    // Fallback: still save locally if the server is down
+    await saveProfile({ name, age: parsedAge, location });
   }
+}
+
+  // async function onSave() {
+  //   if (!canSave) return;
+
+  //   const parsedAge = age.trim() === "" ? null : Number(age);
+  //   if (parsedAge != null && (!Number.isFinite(parsedAge) || parsedAge < 0 || parsedAge > 120)) {
+  //     Alert.alert("Invalid age", "Please enter a valid age between 0 and 120.");
+  //     return;
+  //   }
+
+  //   await saveProfile({
+  //     name,
+  //     age: parsedAge,
+  //     location,
+  //   });
+
+  //   Alert.alert("Saved", "Your profile has been saved.");
+  //   navigation.goBack();
+  // }
 
   async function onClear() {
     await clearProfile();
