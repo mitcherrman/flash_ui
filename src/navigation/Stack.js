@@ -9,6 +9,9 @@ import Game2Screen  from "../Screens/Game2Screen";
 import TOCScreen    from "../Screens/TOCScreen";
 import GameMC from "../Screens/GameMC";
 import GameLRScreen from "../Screens/GameLRScreen";
+import Leaderboard from "../Screens/Leaderboard";
+import CustomDeckScreen from "../Screens/CustomDeckScreen";
+
 
 const Stack = createNativeStackNavigator();
 
@@ -26,6 +29,8 @@ export default function RootStack() {
       <Stack.Screen name="TOC"    component={TOCScreen} options={{ title: "Contents" }} />
       <Stack.Screen name="GameMC" component={GameMC} />
       <Stack.Screen name="GameLR" component={GameLRScreen} />
+      <Stack.Screen name="Leaderboard" component={Leaderboard} />
+      <Stack.Screen name="CustomDeck" component={CustomDeckScreen} />
     </Stack.Navigator>
   );
 }

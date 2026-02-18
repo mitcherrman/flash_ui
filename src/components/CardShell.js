@@ -1,6 +1,6 @@
 // src/components/CardShell.js
 import React from "react";
-import { View, StyleSheet, Image, Platform } from "react-native";
+import { View, StyleSheet, Image, Text } from "react-native";
 
 const BEAR = require("../../assets/BEARlogo.png");
 
@@ -10,8 +10,13 @@ export default function CardShell({
   variant = "front", // 'front' | 'back'
   children,
   style,
+
+  // NEW (optional) for custom cards
+  imageUri = null,
+  label = null,
 }) {
   const isBack = variant === "back";
+  const showCustomFace = !!imageUri && (label != null);
 
   return (
     <View
@@ -20,54 +25,50 @@ export default function CardShell({
         {
           width,
           height,
-          backgroundColor: "#FFFFFF",
+          backgroundColor: isBack ? "#FDB515" : "#FFFFFF",
         },
         style,
       ]}
     >
-      {/* watermark (very subtle) */}
+      {/* watermark */}
       <View style={styles.watermarkWrap} pointerEvents="none">
         <Image
           source={BEAR}
-          style={[
-            styles.watermarkImg,
-            isBack && styles.watermarkImgBack,
-          ]}
+          style={[styles.watermarkImg, isBack && styles.watermarkImgBack]}
           resizeMode="contain"
         />
       </View>
 
-      <View style={styles.inner}>{children}</View>
+      {/* Foreground */}
+      <View style={styles.inner}>
+        {showCustomFace ? (
+          <View style={styles.customFace}>
+            <View style={styles.circleWrap}>
+              <Image source={{ uri: imageUri }} style={styles.circleImg} />
+            </View>
+            <Text style={styles.customLabel} numberOfLines={2}>
+              {String(label || "").trim() || "—"}
+            </Text>
+          </View>
+        ) : (
+          children
+        )}
+      </View>
     </View>
   );
 }
 
-const RADIUS = 22;
+const RADIUS = 26;
 
 const styles = StyleSheet.create({
   shell: {
     borderRadius: RADIUS,
     overflow: "hidden",
-
-    // iOS-like separator border
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(60,60,67,0.18)",
-
-    // soft shadow (native)
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOpacity: 0.08,
-        shadowRadius: 18,
-        shadowOffset: { width: 0, height: 10 },
-      },
-      android: {
-        elevation: 2,
-      },
-      web: {
-        boxShadow: "0 14px 26px rgba(0,0,0,0.10)",
-      },
-    }),
+    shadowColor: "#000",
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
   },
 
   watermarkWrap: {
@@ -75,13 +76,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   watermarkImg: {
     width: "120%",
     height: "120%",
-    opacity: 0.06, // lower = more iOS subtle
+    opacity: 0.10,
   },
-
   watermarkImgBack: {
     transform: [{ scaleX: -1 }],
   },
@@ -91,5 +90,37 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     alignItems: "center",
     justifyContent: "center",
+  },
+
+  // NEW: custom face layout
+  customFace: {
+    flex: 1,
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingTop: 16,
+    paddingBottom: 14,
+  },
+  circleWrap: {
+    width: "74%",
+    aspectRatio: 1,
+    borderRadius: 999,
+    backgroundColor: "#F2F2F7",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.06)",
+  },
+  circleImg: {
+    width: "100%",
+    height: "100%",
+  },
+  customLabel: {
+    color: "#0B1E36",
+    fontSize: 18,
+    fontWeight: "800",
+    textAlign: "center",
+    letterSpacing: -0.2,
   },
 });

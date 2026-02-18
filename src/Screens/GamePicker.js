@@ -258,11 +258,15 @@ export default function GamePicker({ route, navigation }) {
           subtitle="Answer with distractors"
           onPress={() => navigation.navigate("GameMC", { deckId, mode: "mc", order: "doc" })}
         />
-        {/* NEW: Left/Right picker game */}
         <Card
           title="Game 4 — Left / Right"
           subtitle="Swipe to choose between two prompts"
           onPress={() => navigation.navigate("GameLR", { deckId, mode: "lr", order: "doc", n: "all" })}
+        />
+        <Card
+          title="Leaderboard"
+          subtitle="All cards stacked like a deck"
+          onPress={() => navigation.navigate("Leaderboard", { deckId, order: "random", n: "all" })}
         />
       </View>
 
