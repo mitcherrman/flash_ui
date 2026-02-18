@@ -11,6 +11,8 @@ import GameMC from "../Screens/GameMC";
 import GameLRScreen from "../Screens/GameLRScreen";
 import Leaderboard from "../Screens/Leaderboard";
 import CustomDeckScreen from "../Screens/CustomDeckScreen";
+import CreateProfileScreen from "../Screens/CreateProfileScreen";
+
 
 
 const Stack = createNativeStackNavigator();
@@ -31,6 +33,7 @@ export default function RootStack() {
       <Stack.Screen name="GameLR" component={GameLRScreen} />
       <Stack.Screen name="Leaderboard" component={Leaderboard} />
       <Stack.Screen name="CustomDeck" component={CustomDeckScreen} />
+      <Stack.Screen name="CreateProfile" component={CreateProfileScreen} />
     </Stack.Navigator>
   );
 }
