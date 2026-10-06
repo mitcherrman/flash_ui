@@ -830,8 +830,10 @@ Knowledge graphs or ontology discovery; generated game modes; comparison/swipe e
 
 | Repo | Branch | Base | F0.5 commit(s) |
 |---|---|---|---|
-| Frontend `mitcherrman/flash_ui` | `flashv2/f05-stabilization` | `78b289edf651e98100fa83ae71d7b490e44fd69b` (F0) | `a9e1d82bce589820508b90ae6a071772f703d586` (config fix), then the commit adding this addendum (its direct child) |
-| Backend `mitcherrman/flashcard_django` | `flashv2/f05-stabilization` | `18a69289c7d34869fa6a141ec10210e3cc3835d0` (`main`) | `9575ae04e48c54f60d679dbe97b984ab9eb2fcc7` |
+| Frontend `mitcherrman/flash_ui` | `flashv2/f05-stabilization` | `78b289edf651e98100fa83ae71d7b490e44fd69b` (F0) | `a9e1d82bce589820508b90ae6a071772f703d586` (config fix) → `2c5fd8fc105d99052c94d6c8bdd93123de1edeea` (addendum) → the commit carrying this revision (page-policy correction docs) |
+| Backend `mitcherrman/flashcard_django` | `flashv2/f05-stabilization` | `18a69289c7d34869fa6a141ec10210e3cc3835d0` (`main`) | `9575ae04e48c54f60d679dbe97b984ab9eb2fcc7` → **`b3cc888acbf2bb493f1033384659c0aadc50c967`** (final: grounding correction, §31.4 item 6) |
+
+The **final backend F0.5 SHA is `b3cc888`**. `9575ae0` is superseded only in its card-page fallback; everything else in it stands.
 
 Frontend files: `src/config.js`, `.env.example` (new), `.gitignore`, this file. Backend files: `requirements.txt`, `flashcards/ai/driver.py`, `flashcards/ai/flashcard_gen.py`, `flashcards/ai/pipeline/templater.py`, `flashcards/ai/pipeline/core.py`, `flashcards/views.py`, `flashcards/tests/{__init__,fakes,test_pipeline}.py` (replacing the empty `flashcards/tests.py`).
 
@@ -866,11 +868,13 @@ Frontend files: `src/config.js`, `.env.example` (new), `.gitignore`, this file. 
 3. **Merging** sections with the same title, which still happens, widens the range only across contiguous or overlapping pages. Otherwise the first range is kept, so duplicate titles never span other sections' pages.
 4. **Generation text** for a section is its own TOC chunk, matched by title within range. If there isn't one, it is the chunks lying wholly inside the range. Nested TOC entries that share a start page no longer pull in each other's later pages. `estimated` sections get **no** page slice, only their template seed lines, and no `PAGE:` hint.
 5. **Card `section`** = the template section whose job produced the card. The model's echo is not used. This also makes the existing per-section warnings match exactly.
-6. **Card `page`:**
-   - The page inside the section's real range whose text contains the card's excerpt verbatim. The check uses the whole excerpt, or its first or last 8 words, normalised for case, punctuation and whitespace.
-   - Otherwise, the section's first page.
-   - With no real range, i.e. `estimated` or the global "Mixed topics" catch-up: the excerpt may be located anywhere in the document; otherwise `page = null`. There is **no more fabricated `page=1`**.
-   - Limits: paraphrased excerpts fall back to the section start; text is grounded per page, not per line.
+6. **Card `page`** (`core._grounded_page`, final rule as of `b3cc888`). The pipeline is authoritative; the model's echoed `page` is **never** used as provenance.
+   1. **Grounded → exact page.** If the card's excerpt is found verbatim on a page inside the section's real range, that PDF page is used. The check uses the whole excerpt, or its first or last 8 words, normalised for case, punctuation and whitespace.
+   2. **Single-page section → its page.** If the real range is exactly one page, that page is used even when the excerpt doesn't match, because the section is confined to it.
+   3. **Multi-page section, no match → `null`.** The section's first page is **not** assumed. (The `9575ae0` fallback to the section start was removed as unsupported precision.)
+   4. **No real range** (`estimated` sections and the global "Mixed topics" catch-up) → `null`, unless the excerpt is located verbatim somewhere in the document, which is independent grounding.
+   - So a card shows a page only when the pipeline can ground it; otherwise the page is unknown (`null`). The old fabricated `page=1` is also gone.
+   - Limits: a paraphrased excerpt in a multi-page section yields `null` (honest, by design; no fuzzy matching). Text is grounded per page, not per line.
 7. **Unchanged budgets:** section chunks are still trimmed to `max(2000, max_tokens×6)` chars, and section input is still capped at 24,000 chars.
 
 ### 31.5 Ordinal policy
@@ -880,11 +884,11 @@ Frontend files: `src/config.js`, `.env.example` (new), `.gitignore`, this file. 
 - For new decks, `card.ordinal == toc.ordinal == hand index + 1` (tested).
 - Ordering semantics are unchanged: `hand`/`toc` still sort by page/id, not by `ordinal`.
 - Decks created before F0.5 keep `ordinal = 0`; there is no backfill migration.
-- Side effect: "Mixed topics" catch-up cards now have `page = null`, so they sort **last** instead of first.
+- Side effect: cards with an unknown page (`null`) sort **last**. That means "Mixed topics" catch-up cards (formerly first, at a fake page 1) and ungrounded cards from multi-page sections.
 
 ### 31.6 Tests and checks
 
-**Backend suite:** `flashcards/tests/test_pipeline.py`, 15 tests, about 0.3 s, deterministic over 3 consecutive runs.
+**Backend suite:** `flashcards/tests/test_pipeline.py`, **22 tests** (the 15 from `9575ae0` plus 7 added in `b3cc888`), about 0.3 s, deterministic over 3 consecutive runs.
 
 - Synthetic PDFs are built in memory with PyMuPDF. Every page carries traceable `Fact P<page>-<n>` lines, so page provenance can be checked.
 - `FakeOpenAI` is patched in at both client seams (`templater.OpenAI`, `flashcard_gen.CLIENT`). `httpx.Client.send` is patched to fail any real HTTP call.
@@ -900,7 +904,14 @@ Coverage:
 - `estimated` only when extraction fails, with no page text, no `PAGE:` hint and `page = null`;
 - ordinals dense 1..N and equal to toc/hand; catch-up cards `page = null` and last;
 - limits the frontend relies on: `cards_wanted` 1→3, 99→30, "abc"→12; per-section cap 8 (20 → planned 8, created 8, requested 10); response keys unchanged;
-- no temp files left after generate; parse errors expose no temp path.
+- no temp files left after generate; parse errors expose no temp path;
+- **page-grounding policy** (`PageGroundingPolicyTests`, which calls `_grounded_page` directly on synthetic page text):
+  - (A) an exact excerpt in a 1–4 section → its exact page 3;
+  - (B) a paraphrased excerpt in a 1–4 section → `null`, not 1; a model-echoed `page` is ignored; a real excerpt from a page outside the range is ignored;
+  - (C) a paraphrased excerpt in a 5–5 section → 5;
+  - (D) `estimated` or no range → `null`, unless the excerpt is found verbatim;
+- **end-to-end paraphrase** (`ParaphrasedExcerptTests`, through `/generate/` with `FakeOpenAI(paraphrase=True)`): Cells (1–4) cards get `page = null`; Photosynthesis → 5; Respiration → 6; ordinals still 1..8 with the unknown-page cards last.
+  - Against the `9575ae0` grounding code, the three (B) tests and this end-to-end test fail; (A), (C) and (D) pass, because those behaviours were already right.
 
 **Run** (the settings still require `OPENAI_API_KEY`, but any placeholder works and it is never used):
 
@@ -912,12 +923,12 @@ On Python 3.14 the suite patches out Django's `mail_admins` handler (see §31.7,
 
 | Check (all on Python 3.14.7 / Node 24.19.0) | Result |
 |---|---|
-| BE clean clone (`git archive 9575ae0`) → new venv → `pip install -r requirements.txt` | ✅ exit 0; `tiktoken` not installed; `pip check` clean |
+| BE clean clone (`git archive b3cc888`; `9575ae0` also passed) → new venv → `pip install -r requirements.txt` | ✅ exit 0; `tiktoken` not installed; `pip check` clean |
 | BE `manage.py check` | ✅ no issues |
 | BE `makemigrations --check --dry-run` | ✅ no changes (no model changes in F0.5) |
-| BE `manage.py test flashcards` (clean clone) | ✅ 15/15 OK. On the base pipeline the same suite gave 8 failures + 3 errors (before/after evidence) |
+| BE `manage.py test flashcards` (clean clone of `b3cc888`) | ✅ 22/22 OK. On the base pipeline the original 15 gave 8 failures + 3 errors (before/after evidence) |
 | BE import every module | ✅ all active modules; ❌ only the dead `ai.chunker` (tiktoken) and `ai.prompt_cards` (genanki), as in F0 |
-| BE synthetic E2E: real `runserver`, real OpenAI SDK → local `/v1/chat/completions` stub via `OPENAI_BASE_URL` (scratch only) | ✅ analyze 6 pages / rec 3 / ranges 1–4,5–5,6–6. Generate 10/10, no warnings, `title="uneven"`, sections `toc` 1–4/5–5/6–6. Hand: ordinals 1..10, pages 1,1,1,2,2,2,5,5,6,6, matching the excerpt pages. TOC equals hand. 7 model calls (3 template + 4 card), each with only its own section's pages. 0 `.chunks.pkl` in `%TEMP%`. Broken PDF → `'broken.pdf'` in `detail` |
+| BE synthetic E2E (re-run on the `b3cc888` clean clone): real `runserver`, real OpenAI SDK → local `/v1/chat/completions` stub via `OPENAI_BASE_URL` (scratch only) | ✅ analyze 6 pages / rec 3 / ranges 1–4,5–5,6–6. Generate 10/10, no warnings, `title="uneven"`, sections `toc` 1–4/5–5/6–6. Hand: ordinals 1..10, pages 1,1,1,2,2,2,5,5,6,6, matching the excerpt pages. TOC equals hand. 7 model calls (3 template + 4 card), each with only its own section's pages. 0 `.chunks.pkl` in `%TEMP%`. Broken PDF → `'broken.pdf'` in `detail` |
 | FE clean clone (`git archive a9e1d82`, no `src/env.js`) → `npm ci` | ✅ 711 packages |
 | FE `expo export --platform web` | ✅ exit 0; bundle has `API_BASE = "" ‖ "http://127.0.0.1:8000"` |
 | FE `EXPO_PUBLIC_API_BASE=http://10.9.8.7:8000/ expo export --platform web --clear` | ✅ value inlined and the trailing slash stripped at runtime |
@@ -973,7 +984,7 @@ The frontend still has no lint, test or typecheck scripts (unchanged from F0).
 - **Value changes clients may notice:**
   - `template.title` is the deck name;
   - card `page` values are now correct;
-  - `page` can be `null` for "Mixed topics" or estimated cards (all screens already handle `null`);
+  - `page` is `null` whenever it can't be grounded: "Mixed topics", estimated sections, and multi-page sections whose excerpt wasn't found verbatim. All screens already handle `null`; F2/F3 should show the section's range or "page unknown" rather than inventing one;
   - catch-up cards sort last;
   - card `ordinal` is meaningful (1..N) for new decks;
   - card `section` always equals a template section title (or "Mixed topics").
