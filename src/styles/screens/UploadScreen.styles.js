@@ -1,97 +1,58 @@
 // src/styles/screens/UploadScreen.styles.js
 import { StyleSheet } from "react-native";
-import { COLORS, SPACING, RADII } from "../theme";
+import { colors, spacing, text, typeScale } from "../../theme";
 
 export default StyleSheet.create({
-  center: {
-    minHeight: "100%",
+  flow: { marginTop: spacing.xl, gap: spacing.lg },
+  heroBtn: { marginTop: spacing.xl },
+
+  resumeCard: { marginBottom: spacing.xl },
+  resumeSub: { ...text.bodyStrong, marginTop: spacing.xs },
+  buttonRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.md },
+
+  filename: { ...text.bodyStrong, marginTop: spacing.xxs },
+
+  inlineRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  panelText: { ...text.secondary },
+  panelHdr: { ...text.heading, flexShrink: 1 },
+
+  statRow: { flexDirection: "row", gap: spacing.xxl },
+  stat: { minWidth: 72 },
+  statValue: { ...text.title, fontVariant: ["tabular-nums"], marginTop: spacing.xxs },
+  rec: { ...text.body, color: colors.accentText, fontWeight: "600", marginTop: spacing.md },
+
+  fieldLabel: { ...text.label, color: colors.textSecondary },
+  coverageRow: { gap: spacing.sm },
+  sliderHeader: {
+    flexDirection: "row",
     alignItems: "center",
-    padding: SPACING.x3,
+    justifyContent: "space-between",
+    marginBottom: spacing.sm,
   },
-  h1: { color: COLORS.text, fontSize: 28, fontWeight: "800" },
-  subtle: { color: COLORS.textMuted, marginTop: SPACING.x1, textAlign: "center" },
-  filename: {
-    color: COLORS.text,
-    marginBottom: SPACING.x1,
-    marginTop: SPACING.x2,
-    fontWeight: "600",
-  },
+  coverageStats: { marginTop: spacing.sm, gap: spacing.xxs },
+  coverage: { ...text.muted },
 
-  panel: {
-    borderWidth: 1,
-    borderColor: "#334155",
-    padding: SPACING.x2,
-    borderRadius: RADII.xl,
-    backgroundColor: COLORS.slate,
-    marginTop: SPACING.x1,
+  planHeader: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
   },
-  panelHdr: { color: COLORS.text, fontWeight: "700", marginBottom: SPACING.x1 },
-  panelText: { color: "#a8b3cf" },
-
-  statsCard: {
-    backgroundColor: COLORS.slate,
-    borderWidth: 1,
-    borderColor: "#334155",
-    borderRadius: RADII.xl,
-    padding: SPACING.x2,
-    marginVertical: SPACING.x1,
-  },
-  kv: { color: COLORS.text, marginVertical: 2 },
-  k: { color: COLORS.accentBlue },
-  v: { color: COLORS.text, fontWeight: "700" },
-  rec: { color: COLORS.cyan, marginTop: SPACING.x1, fontWeight: "700" },
-
-  sliderLabel: { color: COLORS.text, marginBottom: SPACING.x1 },
-  coverage: { color: "#a7f3d0", marginTop: 2 },
-
-  resumeCard: {
-    width: "90%",
-    backgroundColor: "#012B57",
-    borderWidth: 1,
-    borderColor: "#0C4A6E",
-    borderRadius: 12,
-    padding: 12,
-    marginTop: 16,
-  },
-  resumeTitle: { color: "#FFCD00", fontWeight: "900", fontSize: 16 },
-  resumeSub: { color: "#E6ECF0", marginTop: 4 },
-  resumePrimary: {
-    backgroundColor: "#10b981",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 10,
-  },
-  resumePrimaryTxt: { color: "#052e2b", fontWeight: "900" },
-  resumeHollow: {
-    borderWidth: 1,
-    borderColor: "#0C4A6E",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: "#0b1226",
-  },
-  resumeHollowTxt: { color: "#E6ECF0", fontWeight: "800" },
-
-
   allocRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: SPACING.x1,
+    paddingVertical: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.slate2,
+    borderBottomColor: colors.border,
+    gap: spacing.md,
   },
-  allocTitle: { color: COLORS.text, flexShrink: 1, paddingRight: SPACING.x2 },
-  allocControls: { flexDirection: "row", alignItems: "center", gap: 6 },
-  allocInput: {
-    width: 48,
-    textAlign: "center",
-    borderWidth: 1,
-    borderColor: "#334155",
-    color: COLORS.text,
-    backgroundColor: COLORS.slate,
-    borderRadius: RADII.md,
-    paddingVertical: 4,
-    marginHorizontal: 6,
-  },
+  allocRowLast: { borderBottomWidth: 0, paddingBottom: 0 },
+  allocText: { flexShrink: 1 },
+  allocTitle: { ...text.bodyStrong },
+  allocPages: { ...typeScale.small, color: colors.textMuted, marginTop: spacing.xxs },
+  allocControls: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  allocInput: { width: 56, textAlign: "center", paddingHorizontal: spacing.xs },
 });

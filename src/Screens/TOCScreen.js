@@ -1,23 +1,14 @@
 // src/Screens/TOCScreen.js
 import React, { useEffect, useMemo, useState } from "react";
-import {
-  View,
-  Text,
-  TextInput,
-  FlatList,
-  Pressable,
-  ActivityIndicator,
-  SafeAreaView,
-  Platform,
-  StatusBar,
-} from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
+import { View, Text, FlatList } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { API_BASE } from "../config";
 import styles from "../styles/screens/TOCScreen.styles";
 import { fetchWithCache, deckTocKey } from "../utils/cache";
 
 import TemplateBar from "../components/TemplateBar";
 import { requestTemplateOpen } from "../utils/TemplateBus";
+import { Badge, Button, PageHeader, StatusView, Surface, TextField, useLayout } from "../ui";
 
 export default function TOCScreen({ route, navigation }) {
   const { deckId, returnTo = "Game2", mode = "basic" } = route.params || {};
@@ -25,6 +16,7 @@ export default function TOCScreen({ route, navigation }) {
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+  const { gutter } = useLayout();
 
   useEffect(() => {
     let alive = true;
@@ -82,138 +74,79 @@ export default function TOCScreen({ route, navigation }) {
 
   if (loading) {
     return (
-      <SafeAreaView
-        style={{
-          flex: 1,
-          backgroundColor: "#003262",
-          justifyContent: "center",
-          alignItems: "center",
-          paddingTop: Platform.OS === "android" ? StatusBar.currentHeight || 0 : 0,
-        }}
-      >
-        <ActivityIndicator size="large" color="#FDB515" />
-        <Text style={{ color: "#E6ECF0", marginTop: 8 }}>Loading table of contents…</Text>
+      <>
+        <StatusView loading title="Loading table of contents…" />
 
         {/* Hidden bar so the modal is available */}
         <TemplateBar deckId={deckId} hidden />
-      </SafeAreaView>
+      </>
     );
   }
 
   if (err) {
     return (
-      <SafeAreaView
-        style={{
-          flex: 1,
-          backgroundColor: "#003262",
-          justifyContent: "center",
-          alignItems: "center",
-          padding: 16,
-          paddingTop: Platform.OS === "android" ? StatusBar.currentHeight || 0 : 0,
-        }}
-      >
-        <Text style={{ color: "#FDB515" }}>{err}</Text>
+      <>
+        <StatusView tone="error" title="Couldn't load the table of contents" message={err} />
 
         {/* Hidden bar so the modal is available */}
         <TemplateBar deckId={deckId} hidden />
-      </SafeAreaView>
+      </>
     );
   }
 
   const renderItem = ({ item, index }) => {
     const ordinal = item.ordinal ?? (index + 1);
     return (
-      <Pressable
+      <Surface
+        padding="md"
+        style={styles.item}
         onPress={() => openAt(ordinal)}
-        style={{
-          marginHorizontal: 8,
-          marginVertical: 8,
-          backgroundColor: "#0b1226",
-          borderColor: "#0C4A6E",
-          borderWidth: 1.5,
-          borderRadius: 12,
-          padding: 12,
-        }}
+        accessibilityLabel={`Card ${ordinal}${item.page != null ? `, page ${item.page}` : ""}${item.section ? `, ${item.section}` : ""}: ${item.front}`}
       >
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-          <Text style={{ color: "#93c5fd", fontWeight: "900" }}>#{ordinal}</Text>
-          {item.page != null && <Text style={{ color: "#93c5fd", fontWeight: "700" }}>p.{item.page}</Text>}
+        <View style={styles.itemTop}>
+          <Badge>#{ordinal}</Badge>
+          {item.page != null && <Text style={styles.itemPage}>p.{item.page}</Text>}
         </View>
         {!!item.section && (
-          <Text style={{ color: "#FFCD00", fontWeight: "800", marginTop: 8 }}>
-            {item.section}
-          </Text>
+          <Text style={styles.itemSection}>{item.section}</Text>
         )}
-        <Text style={{ color: "#E6ECF0", marginTop: 8, lineHeight: 20 }}>
-          {item.front}
-        </Text>
-      </Pressable>
+        <Text style={styles.itemFront}>{item.front}</Text>
+      </Surface>
     );
   };
 
   return (
-    <SafeAreaView
-      style={{
-        flex: 1,
-        backgroundColor: "#003262",
-        paddingTop: Platform.OS === "android" ? StatusBar.currentHeight || 0 : 0,
-      }}
-    >
+    <SafeAreaView edges={["top", "left", "right"]} style={styles.container}>
       {/* Header with Back / Home / Template */}
-      <LinearGradient
-        colors={["#032e5d", "#003262"]}
-        style={{
-          paddingTop: 6,
-          paddingHorizontal: 12,
-          paddingBottom: 10,
-          borderBottomWidth: 1,
-          borderBottomColor: "#0C4A6E",
-        }}
-      >
-        {/* Top button row */}
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-          <View style={{ flexDirection: "row", gap: 8 }}>
-            <Pressable onPress={() => navigation.goBack()} style={headerBtnStyle}>
-              <Text style={headerBtnTxt}>Back</Text>
-            </Pressable>
-            <Pressable onPress={goHome} style={[headerBtnStyle, { backgroundColor: "#0ea5e9" }]}>
-              <Text style={[headerBtnTxt, { color: "white" }]}>Home</Text>
-            </Pressable>
-          </View>
-
-          <Pressable onPress={openTemplate} style={[headerBtnStyle, { backgroundColor: "#FDB515" }]}>
-            <Text style={{ color: "#032e5d", fontWeight: "800" }}>Template</Text>
-          </Pressable>
+      <View style={[styles.headerWrap, { paddingHorizontal: gutter }]}>
+        <View style={styles.column}>
+          <PageHeader
+            style={styles.header}
+            left={
+              <>
+                <Button title="Back" variant="secondary" size="sm" onPress={() => navigation.goBack()} />
+                <Button title="Home" variant="secondary" size="sm" onPress={goHome} />
+              </>
+            }
+            right={<Button title="Template" variant="secondary" size="sm" onPress={openTemplate} />}
+            title="Table of Contents"
+            subtitle="Tap to jump to a card"
+          />
+          <TextField
+            value={q}
+            onChangeText={setQ}
+            placeholder="Search by section or question…"
+            accessibilityLabel="Search by section or question"
+            style={styles.searchInput}
+          />
         </View>
-
-        {/* Title + Search */}
-        <Text style={{ color: "#E6ECF0", fontWeight: "900", fontSize: 22, marginTop: 10 }}>
-          Table of Contents
-        </Text>
-        <Text style={{ color: "#94a3b8", marginTop: 2 }}>Tap to jump to a card</Text>
-        <TextInput
-          value={q}
-          onChangeText={setQ}
-          placeholder="Search by section or question…"
-          placeholderTextColor="#7c8799"
-          style={{
-            marginTop: 8,
-            borderWidth: 1.5,
-            borderColor: "#0C4A6E",
-            borderRadius: 10,
-            backgroundColor: "#0b1226",
-            color: "#E6ECF0",
-            paddingHorizontal: 12,
-            paddingVertical: 10,
-          }}
-        />
-      </LinearGradient>
+      </View>
 
       <FlatList
         data={filtered}
         keyExtractor={(it, i) => String(it.id ?? `${it.front}-${i}`)}
         renderItem={renderItem}
-        contentContainerStyle={{ paddingVertical: 16, paddingBottom: 24 }}
+        contentContainerStyle={[styles.list, { paddingHorizontal: gutter }]}
       />
 
       {/* Hidden TemplateBar: modal only */}
@@ -221,11 +154,3 @@ export default function TOCScreen({ route, navigation }) {
     </SafeAreaView>
   );
 }
-
-const headerBtnStyle = {
-  paddingHorizontal: 12,
-  paddingVertical: 6,
-  borderRadius: 10,
-  backgroundColor: "rgba(255,255,255,0.1)",
-};
-const headerBtnTxt = { color: "#E6ECF0", fontWeight: "800" };

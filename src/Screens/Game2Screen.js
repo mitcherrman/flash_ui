@@ -3,6 +3,7 @@ import React, { useRef, useState, useEffect } from "react";
 import { View, StyleSheet, useWindowDimensions, Platform } from "react-native";
 import FlipDrill from "../components/FlipDrill";
 import TemplateBar from "../components/TemplateBar";
+import { colors } from "../theme";
 
 export default function Game2Screen({ route, navigation }) {
   const deckId       = route.params?.deckId;
@@ -51,5 +52,5 @@ export default function Game2Screen({ route, navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#062B52" },
+  container: { flex: 1, backgroundColor: colors.bg },
 });

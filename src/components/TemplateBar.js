@@ -1,17 +1,11 @@
 // src/components/TemplateBar.js
 import React, { useEffect, useMemo, useState } from "react";
-import {
-  View,
-  Text,
-  Pressable,
-  Modal,
-  ScrollView,
-  SafeAreaView,
-  Platform,
-} from "react-native";
+import { View, Text, Modal, ScrollView } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { loadTemplate } from "../utils/cache";
 import { onTemplateOpen } from "../utils/TemplateBus"; // ⟵ NEW
-import s from "../styles/components/TemplateBar.styles"; // if you made the styles file earlier; otherwise inline styles remain fine
+import { Button, Surface } from "../ui";
+import s from "../styles/components/TemplateBar.styles";
 
 export default function TemplateBar({ deckId, onHeight, hidden = false }) {
   const [open, setOpen] = useState(false);
@@ -47,41 +41,21 @@ export default function TemplateBar({ deckId, onHeight, hidden = false }) {
       {/* Bottom bar (skip when hidden) */}
       {!hidden && (
         <SafeAreaView
-          style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: "#062B52",
-            borderTopWidth: 1,
-            borderTopColor: "rgba(255,255,255,0.08)",
-            paddingHorizontal: 16,
-            paddingTop: 10,
-            paddingBottom: Platform.OS === "web" ? 12 : 6,
-            zIndex: 50,
-          }}
+          edges={["bottom", "left", "right"]}
+          style={s.bar}
           onLayout={(e) => onHeight?.(e.nativeEvent.layout.height)}
         >
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, justifyContent: "center" }}>
-            <Pressable
+          <View style={s.row}>
+            <Button
+              title={`Template ${sectionCount ? `(${sectionCount} sec · ${itemCount} pts)` : ""}`.trim()}
+              variant="secondary"
+              size="sm"
+              accessibilityLabel="Open study template"
               onPress={() => setOpen(true)}
-              style={{
-                backgroundColor: "#FDB515",
-                paddingHorizontal: 16,
-                paddingVertical: 10,
-                borderRadius: 12,
-                shadowColor: "#000",
-                shadowOpacity: 0.15,
-                shadowRadius: 6,
-              }}
-            >
-              <Text style={{ color: "#032e5d", fontWeight: "800" }}>
-                Template {sectionCount ? `(${sectionCount} sec · ${itemCount} pts)` : ""}
-              </Text>
-            </Pressable>
+            />
 
             {!tpl && (
-              <Text style={{ color: "#93c5fd", opacity: 0.9 }}>
+              <Text style={s.hint}>
                 No template cached for this deck (build once to populate)
               </Text>
             )}
@@ -91,63 +65,39 @@ export default function TemplateBar({ deckId, onHeight, hidden = false }) {
 
       {/* Full-screen modal viewer (works even when hidden) */}
       <Modal visible={open} animationType="slide" onRequestClose={() => setOpen(false)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: "#001f3f" }}>
-          <View
-            style={{
-              paddingHorizontal: 16,
-              paddingVertical: 12,
-              borderBottomWidth: 1,
-              borderBottomColor: "rgba(255,255,255,0.08)",
-              backgroundColor: "#032e5d",
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
-            <Text style={{ color: "#fff", fontSize: 18, fontWeight: "800" }}>
-              {tpl?.title || `Deck ${deckId}`} • Template
-            </Text>
-            <Pressable
-              onPress={() => setOpen(false)}
-              style={{ backgroundColor: "#FDB515", paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 }}
-            >
-              <Text style={{ color: "#032e5d", fontWeight: "800" }}>Close</Text>
-            </Pressable>
+        <SafeAreaView style={s.modalRoot}>
+          <View style={s.modalTop}>
+            <View style={s.modalTopInner}>
+              <Text accessibilityRole="header" style={s.modalTitle} numberOfLines={2}>
+                {tpl?.title || `Deck ${deckId}`} • Template
+              </Text>
+              <Button title="Close" variant="secondary" size="sm" onPress={() => setOpen(false)} />
+            </View>
           </View>
 
-          <ScrollView contentContainerStyle={{ padding: 16 }}>
-            {tpl?.sections?.length ? (
-              tpl.sections.map((s, idx) => (
-                <View
-                  key={`${idx}-${s.title}`}
-                  style={{
-                    backgroundColor: "rgba(255,255,255,0.04)",
-                    borderRadius: 14,
-                    padding: 14,
-                    marginBottom: 12,
-                  }}
-                >
-                  <Text style={{ color: "#fff", fontWeight: "800", fontSize: 16, marginBottom: 4 }}>
-                    {s.title || "Section"}
-                  </Text>
-                  <Text style={{ color: "#93c5fd", marginBottom: 8 }}>
-                    Pages {s.page_start ?? "?"}–{s.page_end ?? "?"} • {s.items?.length || 0} points
-                  </Text>
-                  {(s.items || []).map((it, j) => (
-                    <View key={j} style={{ marginBottom: 8 }}>
-                      <Text style={{ color: "#e5e7eb", fontWeight: "700" }}>• {it.term}</Text>
-                      {!!it.definition && (
-                        <Text style={{ color: "#cbd5e1" }}>{it.definition}</Text>
-                      )}
-                    </View>
-                  ))}
-                </View>
-              ))
-            ) : (
-              <Text style={{ color: "#93c5fd" }}>
-                No sections available. Build a deck to generate the template.
-              </Text>
-            )}
+          <ScrollView contentContainerStyle={s.modalScroll}>
+            <View style={s.modalColumn}>
+              {tpl?.sections?.length ? (
+                tpl.sections.map((sec, idx) => (
+                  <Surface key={`${idx}-${sec.title}`}>
+                    <Text style={s.secTitle}>{sec.title || "Section"}</Text>
+                    <Text style={s.secMeta}>
+                      Pages {sec.page_start ?? "?"}–{sec.page_end ?? "?"} • {sec.items?.length || 0} points
+                    </Text>
+                    {(sec.items || []).map((it, j) => (
+                      <View key={j} style={s.itemRow}>
+                        <Text style={s.itemTerm}>• {it.term}</Text>
+                        {!!it.definition && <Text style={s.itemDef}>{it.definition}</Text>}
+                      </View>
+                    ))}
+                  </Surface>
+                ))
+              ) : (
+                <Text style={s.noSec}>
+                  No sections available. Build a deck to generate the template.
+                </Text>
+              )}
+            </View>
           </ScrollView>
         </SafeAreaView>
       </Modal>

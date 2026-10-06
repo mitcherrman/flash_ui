@@ -8,14 +8,21 @@ import Game1Screen  from "../Screens/Game1Screen";
 import Game2Screen  from "../Screens/Game2Screen";
 import TOCScreen    from "../Screens/TOCScreen";
 import GameMC from "../Screens/GameMC";
+import { colors } from "../theme";
+import { useReducedMotion } from "../ui/motion";
 
 const Stack = createNativeStackNavigator();
 
 export default function RootStack() {
+  const reduceMotion = useReducedMotion();
   return (
     <Stack.Navigator
       initialRouteName="Upload"
-      screenOptions={{ headerShown: false, animation: "slide_from_right" }}
+      screenOptions={{
+        headerShown: false,
+        animation: reduceMotion ? "none" : "slide_from_right",
+        contentStyle: { backgroundColor: colors.bg },
+      }}
     >
       <Stack.Screen name="Upload" component={UploadScreen} />
       <Stack.Screen name="Build"  component={BuildScreen} />

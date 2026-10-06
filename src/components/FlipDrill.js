@@ -9,7 +9,6 @@ import {
   useWindowDimensions,
   Animated,
   PanResponder,
-  ActivityIndicator,
   Switch,
   Platform,
 } from "react-native";
@@ -19,6 +18,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { API_BASE } from "../config";
 import { fetchWithCache, deckHandKey } from "../utils/cache";
 import CardShell from "./CardShell";
+import { colors, motion } from "../theme";
+import { Button, StatusView, USE_NATIVE_DRIVER, useReducedMotion } from "../ui";
 import styles from "../styles/components/FlipDrill.styles";
 
 const API_ROOT = `${API_BASE}/api/flashcards`;
@@ -96,12 +97,13 @@ export default function FlipDrill({
     return Number.isFinite(v) && v > 0 ? v : null;
   }, [startOrdinal]);
 
-  // ——— Flip animation (rotate entire shell) ———
+  // ——— Flip animation (rotate entire shell; instant under reduced motion) ———
+  const reduceMotion = useReducedMotion();
   useEffect(() => {
     Animated.timing(flipAnim, {
       toValue: flipped ? 180 : 0,
-      duration: 300,
-      useNativeDriver: true,
+      duration: reduceMotion ? 0 : motion.duration.deliberate,
+      useNativeDriver: USE_NATIVE_DRIVER,
     }).start();
   }, [flipped]);
 
@@ -194,19 +196,10 @@ export default function FlipDrill({
 
   // ——— Loading / error ———
   if (err) {
-    return (
-      <SafeAreaView style={styles.center}>
-        <Text style={{ color: "#FDB515", textAlign: "center", fontSize: 18 }}>{err}</Text>
-      </SafeAreaView>
-    );
+    return <StatusView tone="error" title="Couldn't load cards" message={err} />;
   }
   if (!cards.length) {
-    return (
-      <SafeAreaView style={styles.center}>
-        <ActivityIndicator size="large" color="#FDB515" />
-        <Text style={{ marginTop: 8, color: "#E6ECF0", fontSize: 18 }}>Loading cards…</Text>
-      </SafeAreaView>
-    );
+    return <StatusView loading title="Loading cards…" />;
   }
 
   const card = cards[idx] || {};
@@ -229,23 +222,12 @@ export default function FlipDrill({
       >
         {/* Left */}
         <View style={{ flexDirection: "row", alignItems: "center" }}>
-          <Pressable onPress={handleBack} style={styles.backBtn}>
-            <Text style={styles.backTxt}>Back</Text>
-          </Pressable>
+          <Button title="Back" variant="secondary" size="sm" onPress={handleBack} />
         </View>
 
         {/* Center (always visible; absolute centering in landscape to prevent squish) */}
         {isLandscape ? (
-          <Text
-            style={{
-              position: "absolute",
-              left: 0,
-              right: 0,
-              textAlign: "center",
-              color: "#E6ECF0",
-              fontWeight: "800",
-            }}
-          >
+          <Text style={styles.counterLandscape}>
             Card {idx + 1}/{cards.length}
           </Text>
         ) : (
@@ -255,11 +237,13 @@ export default function FlipDrill({
         {/* Right */}
         <View style={{ flexDirection: "row", alignItems: "center" }}>
           {onOpenTOC ? (
-            <Pressable onPress={onOpenTOC} style={styles.tocBtn}>
-              <Text style={styles.tocTxt}>TOC</Text>
-            </Pressable>
+            <Button title="TOC" variant="secondary" size="sm" accessibilityLabel="Table of contents" onPress={onOpenTOC} />
           ) : navigation ? (
-            <Pressable
+            <Button
+              title="TOC"
+              variant="secondary"
+              size="sm"
+              accessibilityLabel="Table of contents"
               onPress={() =>
                 navigation.navigate("TOC", {
                   deckId,
@@ -267,10 +251,7 @@ export default function FlipDrill({
                   startOrdinal: idx + 1,
                 })
               }
-              style={styles.tocBtn}
-            >
-              <Text style={styles.tocTxt}>TOC</Text>
-            </Pressable>
+            />
           ) : null}
         </View>
       </View>
@@ -321,6 +302,8 @@ export default function FlipDrill({
         {/* Tap to flip */}
         <Pressable
           style={StyleSheet.absoluteFillObject}
+          accessibilityRole="button"
+          accessibilityLabel={flipped ? "Show question" : "Show answer"}
           onPress={() => {
             Haptics.selectionAsync();
             setFlipped((f) => !f);
@@ -355,8 +338,10 @@ export default function FlipDrill({
             <Switch
               value={showCtx}
               onValueChange={setShowCtx}
-              thumbColor="#FDB515"
-              trackColor={{ true: "#FFCD00" }}
+              thumbColor={colors.surface}
+              {...(Platform.OS === "web" ? { activeThumbColor: colors.surface } : null)}
+              trackColor={{ true: colors.accent, false: colors.borderStrong }}
+              accessibilityLabel="Show context"
               style={{ marginLeft: 8 }}
             />
           </View>
@@ -393,12 +378,8 @@ export default function FlipDrill({
               : undefined,
         }}
       >
-        <Pressable style={styles.btn} onPress={prevCard}>
-          <Text style={styles.btnTxt}>Prev</Text>
-        </Pressable>
-        <Pressable style={styles.btn} onPress={nextCard}>
-          <Text style={styles.btnTxt}>Next</Text>
-        </Pressable>
+        <Button title="Prev" variant="secondary" accessibilityLabel="Previous card" onPress={prevCard} style={styles.navBtn} />
+        <Button title="Next" accessibilityLabel="Next card" onPress={nextCard} style={styles.navBtn} />
       </View>
     </SafeAreaView>
   );

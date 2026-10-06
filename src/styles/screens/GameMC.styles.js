@@ -1,19 +1,10 @@
 // src/styles/screens/GameMC.styles.js
 import { StyleSheet } from "react-native";
-
-const BG    = "#062B52";
-const BLUE  = "#0ea5e9";
-const GOLD  = "#FDB515";
-const TEXT  = "#E6ECF0";
-const MUTED = "#9fbcd8";
-const PANEL_BORDER = "rgba(255,255,255,0.08)";
+import { colors, layout, radius, spacing, text, typeScale } from "../../theme";
 
 export const s = StyleSheet.create({
   // ───────── Containers / common ─────────
-  container: { flex: 1, backgroundColor: BG },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: BG },
-  muted: { color: MUTED },
-  error: { color: GOLD, fontWeight: "700" },
+  container: { flex: 1, backgroundColor: colors.bg },
 
   // ───────── Top bar ─────────
   topBar: {
@@ -22,95 +13,60 @@ export const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  topBarDesktop: {
-    height: 56,
-    paddingVertical: 4,
+  header: { ...text.bodyStrong, fontVariant: ["tabular-nums"] },
+  // Presentational overlay centred across the bar; must never take presses
+  // from the Back/TOC buttons beneath it (pre-F1 bug on web landscape/desktop).
+  counterLandscape: {
+    pointerEvents: "none",
+    ...text.bodyStrong,
+    fontVariant: ["tabular-nums"],
+    position: "absolute",
+    left: 0,
+    right: 0,
+    textAlign: "center",
   },
-  topBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 10,
-    backgroundColor: "rgba(255,255,255,0.10)",
-  },
-  topBtnTxt: { color: TEXT, fontWeight: "700" },
-  header: { color: TEXT, fontWeight: "800" },
 
-  // ───────── Mode toggle + counters ─────────
-  modeBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-  },
-  modeToggleWrap: { flexDirection: "row", gap: 8 },
-  modeToggleBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 10,
-    backgroundColor: "rgba(255,255,255,0.08)",
-  },
-  modeToggleActive: { backgroundColor: BLUE },
-  modeToggleTxt: { color: TEXT, fontWeight: "700" },
-  modeToggleTxtActive: { color: "white" },
+  counterBadge: { alignSelf: "center" },
 
-  counterRow: { flexDirection: "row", gap: 8, alignItems: "center" },
-  counterPill: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999 },
-  counterRight: { backgroundColor: "rgba(34,197,94,0.25)" },
-  counterWrong: { backgroundColor: "rgba(239,68,68,0.25)" },
-  counterTxt: { color: TEXT, fontWeight: "700" },
-  counterPillMuted: {
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  counterTxtMuted: { color: MUTED, fontWeight: "700" },
+  // ───────── Mode toggle ─────────
+  modeToggleWrap: { flexDirection: "row", gap: spacing.xs, flexWrap: "nowrap" },
 
   // ───────── Main content layout (card + options) ─────────
   contentWrap: {
     flexGrow: 1,
-    paddingHorizontal: 8,
-    paddingBottom: 8,
+    paddingHorizontal: spacing.sm,
+    paddingBottom: spacing.sm,
   },
-  twoCol: { flexDirection: "row", columnGap: 24, rowGap: 24 },
-  stacked: { flexDirection: "column", rowGap: 16 },
 
   // Question text (inside CardShell)
-  question: {
-    color: "#0b1e36",
-    textAlign: "center",
-    fontSize: 22,
-    fontWeight: "800",
-  },
-  questionDesktop: { fontSize: 26 },
+  question: { ...text.cardFront, fontSize: 22, lineHeight: 30, textAlign: "center" },
 
   // Options list
   optsWrap: { alignItems: "stretch", justifyContent: "flex-start" },
   opts: { gap: 10, alignSelf: "center", width: "100%" },
-  optsDesktop: { gap: 12, maxWidth: 540, alignSelf: "stretch" },
   opt: {
     minHeight: 48,
-    borderRadius: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    backgroundColor: "rgba(6,34,66,0.85)",
+    borderRadius: radius.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: PANEL_BORDER,
+    borderColor: colors.border,
+    justifyContent: "center",
   },
-  optDesktop: { minHeight: 56, paddingVertical: 14, paddingHorizontal: 18, borderRadius: 12 },
-  optText: { color: TEXT, fontSize: 16, lineHeight: 22, fontWeight: "700" },
-  optTextDesktop: { fontSize: 18, lineHeight: 24 },
+  optHover: { borderColor: colors.borderStrong, backgroundColor: colors.sourceSurface },
+  optText: { ...typeScale.body, fontWeight: "500", color: colors.text },
 
   // Prev / Next buttons
-  controls: { marginTop: 14, alignSelf: "center", flexDirection: "row", gap: 12 },
-  controlsDesktop: { gap: 16 },
-  btn: { backgroundColor: GOLD, borderRadius: 10, paddingHorizontal: 18, paddingVertical: 10 },
-  btnTxt: { color: "#0b1e36", fontWeight: "800" },
+  controls: { marginTop: 14, alignSelf: "center", flexDirection: "row", gap: spacing.md },
+  navBtn: { minWidth: layout.touchTarget * 2.5 },
 });
 
+// Answer feedback: tinted fill + strong outline; text colour stays readable.
 export const stateStyles = StyleSheet.create({
   idle: {},
-  correct: { backgroundColor: "rgba(34,197,94,0.18)", borderColor: "rgba(34,197,94,0.65)" },
-  wrong:   { backgroundColor: "rgba(239,68,68,0.18)", borderColor: "rgba(239,68,68,0.65)" },
+  correct: { backgroundColor: colors.successSoft, borderColor: colors.success },
+  wrong: { backgroundColor: colors.errorSoft, borderColor: colors.error },
+  correctText: { color: colors.success, fontWeight: "600" },
+  wrongText: { color: colors.error, fontWeight: "600" },
 });

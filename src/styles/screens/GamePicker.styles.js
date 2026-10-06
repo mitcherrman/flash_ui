@@ -1,92 +1,66 @@
 // src/styles/screens/GamePicker.styles.js
 import { StyleSheet } from "react-native";
-import { COLORS, SPACING, RADII } from "../theme";
+import { colors, layout, radius, spacing, text, typeScale } from "../../theme";
 
 export default StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.bg },
-  inner: {
-    paddingTop: SPACING.x4 + SPACING.x2,
-    paddingBottom: SPACING.x3 + SPACING.x1,
-    alignItems: "center",
-  },
-  h1: { color: COLORS.text, fontSize: 28, fontWeight: "900" },
-  subtle: { color: "#A7B3C9", marginTop: SPACING.x1 },
-
   grid: {
-    marginTop: SPACING.x3,
-    width: "92%",
-    maxWidth: 900,
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: SPACING.x2,
-    justifyContent: "center",
+    gap: spacing.lg,
   },
 
+  // Mode cards: two columns when there is room, one column on phones
   card: {
-    flexBasis: "46%",
-    minWidth: 320,
-    backgroundColor: "#0B274A",
-    borderColor: COLORS.border,
-    borderWidth: 2,
-    borderRadius: RADII.xxxl,
-    padding: SPACING.x2,
+    flexGrow: 1,
+    flexBasis: 300,
+    minWidth: 240,
   },
-  cardTitle: { color: COLORS.gold, fontWeight: "900", fontSize: 18 },
-  cardSub: { color: COLORS.text, marginTop: SPACING.x1 },
+  cardTitle: { ...text.heading, fontSize: 20, lineHeight: 26, fontWeight: "700" },
+  cardSub: { ...text.secondary, marginTop: spacing.xs },
   cardBtn: {
     alignSelf: "flex-start",
-    marginTop: SPACING.x2,
-    backgroundColor: COLORS.gold2,
-    paddingHorizontal: SPACING.x2 + 2,
-    paddingVertical: SPACING.x1 + 2,
-    borderRadius: RADII.xl,
+    marginTop: spacing.xl,
+    minHeight: layout.touchTarget,
+    justifyContent: "center",
+    backgroundColor: colors.accent,
+    paddingHorizontal: spacing.lg + 2,
+    borderRadius: radius.md,
   },
-  cardBtnTxt: { color: "#082F49", fontWeight: "900" },
+  cardBtnTxt: { ...typeScale.label, color: colors.textOnAccent },
 
-  tocLink: {
-    marginTop: SPACING.x3 - 4,
-    borderColor: COLORS.border,
-    borderWidth: 2,
-    paddingHorizontal: SPACING.x2 + 2,
-    paddingVertical: SPACING.x1 + 2,
-    borderRadius: RADII.xl,
-    backgroundColor: COLORS.bg2,
-  },
-  tocTxt: { color: COLORS.text, fontWeight: "800" },
+  tools: { marginTop: spacing.xl },
+  toolRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.md },
 
-  // Secondary button (download HTML)
-  secondaryBtn: {
-    marginTop: SPACING.x2,
-    borderColor: COLORS.border,
-    borderWidth: 2,
-    paddingHorizontal: SPACING.x2 + 2,
-    paddingVertical: SPACING.x1 + 2,
-    borderRadius: RADII.xl,
-    backgroundColor: COLORS.bg2,
-  },
-  secondaryTxt: { color: COLORS.text, fontWeight: "800" },
+  devRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.lg },
 
-  // Export / share PDF
-  exportBtn: {
-    marginTop: SPACING.x2,
-    borderColor: COLORS.border,
-    borderWidth: 2,
-    paddingHorizontal: SPACING.x2 + 2,
-    paddingVertical: SPACING.x1 + 4,
-    borderRadius: RADII.xl,
-    backgroundColor: "#0B3D91",
+  // Template modal
+  modalRoot: { flex: 1, backgroundColor: colors.bg },
+  modalTop: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
-  exportTxt: { color: COLORS.gold, fontWeight: "900" },
-
-  // Dev cache buttons
-  devBtn: {
-    marginTop: SPACING.x2 - 4,
-    borderColor: COLORS.border,
-    borderWidth: 2,
-    paddingHorizontal: SPACING.x2 + 2,
-    paddingVertical: SPACING.x1 + 2,
-    borderRadius: RADII.xl,
-    backgroundColor: "#0B274A",
+  modalTopInner: {
+    width: "100%",
+    maxWidth: layout.maxWidth.content,
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
   },
-  devBtnTxt: { color: COLORS.gold, fontWeight: "900" },
+  modalTitleWrap: { flexShrink: 1 },
+  modalTitle: { ...text.heading },
+  modalSub: { ...text.muted, marginTop: spacing.xxs },
+  modalCenter: { flex: 1, alignItems: "center", justifyContent: "center" },
+  modalScroll: { padding: spacing.lg, paddingBottom: spacing.xxxl, alignItems: "center" },
+  modalColumn: { width: "100%", maxWidth: layout.maxWidth.content, gap: spacing.md },
+  modalEmpty: { ...text.secondary },
+  secCard: {},
+  secTitle: { ...text.bodyStrong },
+  secMeta: { ...text.muted, marginTop: spacing.xxs, marginBottom: spacing.sm },
+  secItem: { ...text.small, color: colors.text, marginBottom: spacing.xs },
+  secMore: { ...text.muted, fontStyle: "italic" },
 });

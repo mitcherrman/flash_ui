@@ -4,7 +4,6 @@ import {
   View,
   Text,
   Pressable,
-  ActivityIndicator,
   Platform,
 } from "react-native";
 import { useWindowDimensions } from "react-native";
@@ -14,6 +13,7 @@ import { API_BASE } from "../config";
 import CardShell from "../components/CardShell";
 import { pickDistractors, shuffle } from "../utils/PickDistractors";
 import { fetchWithCache, deckHandKey } from "../utils/cache";
+import { Badge, Button, Chip, ChipGroup, StatusView } from "../ui";
 import { s, stateStyles } from "../styles/screens/GameMC.styles";
 
 const API_ROOT = `${API_BASE}/api/flashcards`;
@@ -181,19 +181,12 @@ export default function GameMC({ route, navigation }) {
   };
 
   if (loading) {
-    return (
-      <View style={s.center}>
-        <ActivityIndicator size="large" color="#FDB515" />
-        <Text style={s.muted}>Loading…</Text>
-      </View>
-    );
+    return <StatusView loading title="Loading…" />;
   }
   if (err || !cards.length) {
-    return (
-      <View style={s.center}>
-        <Text style={s.error}>{err || "No cards."}</Text>
-      </View>
-    );
+    return err
+      ? <StatusView tone="error" title="Couldn't load cards" message={err} />
+      : <StatusView tone="empty" title="No cards." />;
   }
 
   const card = cards[idx];
@@ -214,49 +207,42 @@ export default function GameMC({ route, navigation }) {
       >
         {/* Left */}
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-          <Pressable onPress={goToPicker} style={s.topBtn}>
-            <Text style={s.topBtnTxt}>Back</Text>
-          </Pressable>
-          <View style={[s.modeToggleWrap, { marginLeft: 4 }]}>
-            <Pressable
+          <Button title="Back" variant="secondary" size="sm" onPress={goToPicker} />
+          <ChipGroup label="Scoring mode" style={[s.modeToggleWrap, { marginLeft: 4 }]}>
+            <Chip
+              label="1"
+              accessibilityLabel="Mode 1: no score"
+              selected={gameMode === "normal"}
               onPress={() => switchMode("normal")}
-              style={[s.modeToggleBtn, gameMode === "normal" && s.modeToggleActive]}
-            >
-              <Text style={[s.modeToggleTxt, gameMode === "normal" && s.modeToggleTxtActive]}>
-                1
-              </Text>
-            </Pressable>
-            <Pressable
+            />
+            <Chip
+              label="2"
+              accessibilityLabel="Mode 2: endless, counts right and wrong answers"
+              selected={gameMode === "endless"}
               onPress={() => switchMode("endless")}
-              style={[s.modeToggleBtn, gameMode === "endless" && s.modeToggleActive]}
-            >
-              <Text style={[s.modeToggleTxt, gameMode === "endless" && s.modeToggleTxtActive]}>
-                2
-              </Text>
-            </Pressable>
-          </View>
+            />
+          </ChipGroup>
         </View>
 
         {/* Center title */}
         {isLandscape ? (
           <Text
-            style={{
-              position: "absolute",
-              left: 0,
-              right: 0,
-              textAlign: "center",
-              top: insets.top + (isDesktopWeb ? 2 : 6),
-              color: "#E6ECF0",
-              fontWeight: "800",
-              fontSize: isDesktopWeb ? 18 : 16,
-            }}
+            style={[
+              s.counterLandscape,
+              { top: insets.top + (isDesktopWeb ? 2 : 6), fontSize: isDesktopWeb ? 18 : 16 },
+            ]}
           >
             Card {idx + 1}/{total}
           </Text>
         ) : (
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-            <Text style={[s.header, isDesktopWeb && { fontSize: 18 }]}>
-              Card {idx + 1}/{total}
+            {/* Narrow phones: 44px targets leave little room, so drop the word "Card" */}
+            <Text
+              style={[s.header, isDesktopWeb && { fontSize: 18 }]}
+              numberOfLines={1}
+              accessibilityLabel={`Card ${idx + 1} of ${total}`}
+            >
+              {width < 480 ? `${idx + 1}/${total}` : `Card ${idx + 1}/${total}`}
             </Text>
           </View>
         )}
@@ -265,15 +251,15 @@ export default function GameMC({ route, navigation }) {
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           {gameMode === "endless" && (
             <>
-              <View style={[s.counterPill, s.counterRight]}>
-                <Text style={s.counterTxt}> {rightCount}</Text>
-              </View>
-              <View style={[s.counterPill, s.counterWrong]}>
-                <Text style={s.counterTxt}> {wrongCount}</Text>
-              </View>
+              <Badge tone="success" style={s.counterBadge} accessibilityLabel={`Right: ${rightCount}`}>✓ {rightCount}</Badge>
+              <Badge tone="error" style={s.counterBadge} accessibilityLabel={`Wrong: ${wrongCount}`}>✗ {wrongCount}</Badge>
             </>
           )}
-          <Pressable
+          <Button
+            title="TOC"
+            variant="secondary"
+            size="sm"
+            accessibilityLabel="Table of contents"
             onPress={() =>
               navigation.navigate("TOC", {
                 deckId,
@@ -281,10 +267,7 @@ export default function GameMC({ route, navigation }) {
                 startOrdinal: idx + 1,
               })
             }
-            style={[s.topBtn, { backgroundColor: "#0ea5e9" }]}
-          >
-            <Text style={[s.topBtnTxt, { color: "white" }]}>TOC</Text>
-          </Pressable>
+          />
         </View>
       </View>
 
@@ -326,10 +309,13 @@ export default function GameMC({ route, navigation }) {
                 <Pressable
                   key={i}
                   onPress={() => pick(i)}
-                  style={[
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isPicked }}
+                  style={({ hovered }) => [
                     s.opt,
                     isDesktopWeb && { minHeight: 56, paddingVertical: 14 },
                     isLandscape && !isDesktopWeb && { minHeight: 40, paddingVertical: 8 },
+                    hovered && picked == null && s.optHover,
                     stateStyles[state],
                   ]}
                 >
@@ -338,6 +324,7 @@ export default function GameMC({ route, navigation }) {
                       s.optText,
                       isDesktopWeb && { fontSize: 18, lineHeight: 24 },
                       isLandscape && !isDesktopWeb && { fontSize: 14, lineHeight: 18 },
+                      state !== "idle" && stateStyles[`${state}Text`],
                     ]}
                   >
                     {opt}
@@ -348,12 +335,8 @@ export default function GameMC({ route, navigation }) {
           </View>
 
           <View style={[s.controls, { marginBottom: 16 + insets.bottom }]}>
-            <Pressable onPress={prev} style={s.btn}>
-              <Text style={s.btnTxt}>Previous</Text>
-            </Pressable>
-            <Pressable onPress={next} style={s.btn}>
-              <Text style={s.btnTxt}>Next</Text>
-            </Pressable>
+            <Button title="Previous" variant="secondary" accessibilityLabel="Previous card" onPress={prev} style={s.navBtn} />
+            <Button title="Next" accessibilityLabel="Next card" onPress={next} style={s.navBtn} />
           </View>
         </View>
       </View>

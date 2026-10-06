@@ -1,11 +1,12 @@
 // src/Screens/GamePicker.js
 //
-// Aesthetic game selection screen (blocky cards, Berkeley palette)
+// Study-mode selection screen
 // + Export: web → HTML download (printable cut-out cards)
 //           native → PDF share via expo-print
 
 import React, { useEffect, useState } from "react";
-import { View, Text, Pressable, ScrollView, Platform, Alert, Modal, ActivityIndicator } from "react-native";
+import { View, Text, ScrollView, Platform, Modal, ActivityIndicator } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system";
@@ -19,9 +20,15 @@ import {
   loadLastDeck,
   loadTemplate,           // ← NEW
 } from "../utils/cache";
+import { colors } from "../theme";
+import { Button, MetaLabel, PageHeader, Screen, Surface, notify } from "../ui";
 import styles from "../styles/screens/GamePicker.styles";
 
 const API_ROOT = `${API_BASE}/api/flashcards`;
+
+// Developer-only controls (cache clearing, raw template JSON) are hidden from
+// the normal UI. Set EXPO_PUBLIC_SHOW_DEV_TOOLS=1 (e.g. in .env.local) to show them.
+const SHOW_DEV_TOOLS = process.env.EXPO_PUBLIC_SHOW_DEV_TOOLS === "1";
 
 function formatMs(ms) {
   const s = Math.max(0, Math.floor((ms || 0) / 1000));
@@ -124,11 +131,11 @@ export default function GamePicker({ route, navigation }) {
   async function clearDeckCache() {
     await delCache(deckHandKey(deckId, "doc", "all"));
     await delCache(deckTocKey(deckId));
-    Alert.alert("Cache", "Cleared cache for this deck.");
+    notify("Cache", "Cleared cache for this deck.");
   }
   async function clearAll() {
     await clearAllCache();
-    Alert.alert("Cache", "Cleared ALL cached decks/TOCs.");
+    notify("Cache", "Cleared ALL cached decks/TOCs.");
   }
 
   async function fetchCardsDocOrder(id) {
@@ -149,7 +156,7 @@ export default function GamePicker({ route, navigation }) {
       await saveHTML({ html, filename: `deck-${deckId}-print.html` });
     } catch (e) {
       console.error(e);
-      Alert.alert("Export failed", String(e));
+      notify("Export failed", String(e));
     }
   }
 
@@ -172,12 +179,12 @@ export default function GamePicker({ route, navigation }) {
         if (canShare) {
           await Sharing.shareAsync(dest, { mimeType: "application/pdf" });
         } else {
-          Alert.alert("Exported", `Saved PDF to:\n${dest}`);
+          notify("Exported", `Saved PDF to:\n${dest}`);
         }
       }
     } catch (e) {
       console.error(e);
-      Alert.alert("Export failed", String(e).slice(0, 280));
+      notify("Export failed", String(e).slice(0, 280));
     } finally {
       setBusy(false);
     }
@@ -194,7 +201,7 @@ export default function GamePicker({ route, navigation }) {
       if (!tpl) {
         const cards = await fetchCardsDocOrder(deckId);
         if (!cards?.length) {
-          Alert.alert("Template", "No template found and unable to reconstruct from cards.");
+          notify("Template", "No template found and unable to reconstruct from cards.");
           return;
         }
         tpl = buildTemplateFromCards(cards, `Deck ${deckId}`);
@@ -207,153 +214,155 @@ export default function GamePicker({ route, navigation }) {
       setShowTpl(true);
     } catch (e) {
       console.error(e);
-      Alert.alert("Template error", String(e).slice(0, 280));
+      notify("Template error", String(e).slice(0, 280));
     } finally {
       setTplLoading(false);
     }
   }
 
+  // Mode card: the whole surface is the button; "Start" is its visual affordance.
   const Card = ({ title, subtitle, onPress }) => (
-    <Pressable style={styles.card} onPress={onPress} disabled={busy}>
+    <Surface
+      variant="raised"
+      padding="xl"
+      style={styles.card}
+      onPress={onPress}
+      disabled={busy}
+      accessibilityLabel={`${title}. ${subtitle}`}
+    >
       <Text style={styles.cardTitle}>{title}</Text>
       {!!subtitle && <Text style={styles.cardSub}>{subtitle}</Text>}
       <View style={styles.cardBtn}>
         <Text style={styles.cardBtnTxt}>{busy ? "Working…" : "Start"}</Text>
       </View>
-    </Pressable>
+    </Surface>
   );
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.inner}>
-      <Text style={styles.h1}>Choose a Mode</Text>
-      <Text style={styles.subtle}>
-        Deck #{deckId}
-        {buildMs != null ? ` • built in ${formatMs(buildMs)}` : ""}
-      </Text>
+    <Screen scroll maxWidth="content">
+      <PageHeader
+        title="Choose a study mode"
+        subtitle={`Deck #${deckId}${buildMs != null ? ` • built in ${formatMs(buildMs)}` : ""}`}
+      />
 
+      {/* "Game 1 — Curate" (route Game1) is a verified placeholder with no
+          functionality; it is hidden from the picker until it exists. */}
       <View style={styles.grid}>
         <Card
-          title="Game 1 — Curate"
-          subtitle="Cull weak/duplicate cards first"
-          onPress={() => navigation.navigate("Game1", { deckId })}
-        />
-        <Card
-          title="Game 2 — Mastery"
-          subtitle="Short-answer drill"
+          title="Flip Drill"
+          subtitle="Flip each card to check your answer, with its source section and page."
           onPress={() =>
             navigation.navigate("Game2", { deckId, mode: "basic", order: "doc" })
           }
         />
         <Card
-          title="Game 3 — Multiple Choice"
-          subtitle="Answer with distractors"
+          title="Multiple Choice"
+          subtitle="Pick the right answer from a set of options."
           onPress={() =>
             navigation.navigate("GameMC", { deckId, mode: "mc", order: "doc" })
           }
         />
       </View>
 
-      <Pressable
-        style={styles.tocLink}
-        onPress={() =>
-          navigation.navigate("TOC", { deckId, returnTo: "Game2", mode: "basic" })
-        }
-      >
-        <Text style={styles.tocTxt}>Open Table of Contents</Text>
-      </Pressable>
+      <Surface style={styles.tools}>
+        <MetaLabel>Deck tools</MetaLabel>
+        <View style={styles.toolRow}>
+          <Button
+            title="Open Table of Contents"
+            variant="secondary"
+            onPress={() =>
+              navigation.navigate("TOC", { deckId, returnTo: "Game2", mode: "basic" })
+            }
+          />
+          <Button
+            title={tplLoading ? "Loading template…" : "View study template"}
+            variant="secondary"
+            onPress={onViewTemplate}
+            disabled={tplLoading}
+          />
+          <Button
+            title="Download printable cards (HTML)"
+            variant="secondary"
+            onPress={downloadPrintable}
+            disabled={busy}
+          />
+          <Button
+            title={busy ? "Preparing export…" : "Export / Share PDF"}
+            variant="secondary"
+            onPress={exportDeck}
+            disabled={busy}
+            loading={busy}
+          />
+        </View>
+      </Surface>
 
-      <Pressable
-        style={styles.secondaryBtn}
-        onPress={downloadPrintable}
-        disabled={busy}
-      >
-        <Text style={styles.secondaryTxt}>Download printable cards (HTML)</Text>
-      </Pressable>
-
-      {/* NEW: View Template button (opens modal and also logs pretty JSON) */}
-      <Pressable style={styles.secondaryBtn} onPress={onViewTemplate} disabled={tplLoading}>
-        <Text style={styles.secondaryTxt}>{tplLoading ? "Loading template…" : "View study template"}</Text>
-      </Pressable>
-
-      <Pressable style={styles.devBtn} onPress={clearDeckCache}>
-        <Text style={styles.devBtnTxt}>Dev: Clear cache (this deck)</Text>
-      </Pressable>
-
-      <Pressable style={styles.devBtn} onPress={clearAll}>
-        <Text style={styles.devBtnTxt}>Dev: Clear ALL cache</Text>
-      </Pressable>
-
-      <Pressable style={styles.exportBtn} onPress={exportDeck} disabled={busy}>
-        <Text style={styles.exportTxt}>
-          {busy ? "Preparing export…" : "Export / Share PDF"}
-        </Text>
-      </Pressable>
+      {SHOW_DEV_TOOLS && (
+        <View style={styles.devRow}>
+          <Button title="Dev: Clear cache (this deck)" variant="quiet" size="sm" onPress={clearDeckCache} />
+          <Button title="Dev: Clear ALL cache" variant="quiet" size="sm" onPress={clearAll} />
+        </View>
+      )}
 
       {/* Template Modal */}
       <Modal visible={showTpl} animationType="slide" onRequestClose={() => setShowTpl(false)}>
-        <View style={{ flex: 1, backgroundColor: "#012a4a", paddingTop: 48 }}>
-          <Text style={{ color: "#fff", fontSize: 22, fontWeight: "800", textAlign: "center" }}>
-            Study Template
-          </Text>
-          <Text style={{ color: "#93c5fd", textAlign: "center", marginTop: 4 }}>
-            Deck #{deckId}
-          </Text>
-
-          <View style={{ paddingHorizontal: 16, paddingTop: 12, flex: 1 }}>
-            {tplLoading ? (
-              <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-                <ActivityIndicator size="large" color="#FDB515" />
+        <SafeAreaView style={styles.modalRoot}>
+          <View style={styles.modalTop}>
+            <View style={styles.modalTopInner}>
+              <View style={styles.modalTitleWrap}>
+                <Text accessibilityRole="header" style={styles.modalTitle}>Study Template</Text>
+                <Text style={styles.modalSub}>Deck #{deckId}</Text>
               </View>
-            ) : (
-              <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+              <Button title="Close" variant="secondary" size="sm" onPress={() => setShowTpl(false)} />
+            </View>
+          </View>
+
+          {tplLoading ? (
+            <View style={styles.modalCenter}>
+              <ActivityIndicator size="large" color={colors.accent} />
+            </View>
+          ) : (
+            <ScrollView contentContainerStyle={styles.modalScroll}>
+              <View style={styles.modalColumn}>
                 {!template ? (
-                  <Text style={{ color: "#fff", opacity: 0.8 }}>No template available.</Text>
+                  <Text style={styles.modalEmpty}>No template available.</Text>
                 ) : (
                   <>
                     {(template.sections || []).map((sec, i) => (
-                      <View key={`${i}-${sec.title}`} style={{ backgroundColor: "#083863", marginBottom: 12, borderRadius: 12, padding: 12 }}>
-                        <Text style={{ color: "#fff", fontWeight: "800", fontSize: 16 }}>
-                          {sec.title || "Section"}
-                          <Text style={{ color: "#93c5fd", fontWeight: "600" }}>
-                            {`  •  p.${sec.page_start ?? "?"}${sec.page_end && sec.page_end !== sec.page_start ? `–${sec.page_end}` : ""}`}
-                          </Text>
+                      <Surface key={`${i}-${sec.title}`} style={styles.secCard}>
+                        <Text style={styles.secTitle}>{sec.title || "Section"}</Text>
+                        <Text style={styles.secMeta}>
+                          {`p.${sec.page_start ?? "?"}${sec.page_end && sec.page_end !== sec.page_start ? `–${sec.page_end}` : ""}`}
                         </Text>
-                        <View style={{ height: 6 }} />
                         {(sec.items || []).slice(0, 8).map((it, j) => (
-                          <Text key={j} style={{ color: "#e5f0ff", marginBottom: 6 }}>
+                          <Text key={j} style={styles.secItem}>
                             {it.term ? `• ${it.term}` : "•"}{it.definition ? `: ${it.definition}` : ""}
                           </Text>
                         ))}
                         {(sec.items || []).length > 8 ? (
-                          <Text style={{ color: "#93c5fd", fontStyle: "italic" }}>
+                          <Text style={styles.secMore}>
                             …and {(sec.items || []).length - 8} more
                           </Text>
                         ) : null}
-                      </View>
+                      </Surface>
                     ))}
-                    <View style={{ height: 8 }} />
-                    <Pressable
-                      onPress={() => {
-                        try { console.log("Template JSON", JSON.stringify(template, null, 2)); } catch {}
-                        Alert.alert("Template", "Printed full JSON to the console.");
-                      }}
-                      style={{ backgroundColor: "#FDB515", padding: 12, borderRadius: 10, alignItems: "center" }}
-                    >
-                      <Text style={{ color: "#072A46", fontWeight: "800" }}>Print full JSON to console</Text>
-                    </Pressable>
+                    {SHOW_DEV_TOOLS && (
+                      <Button
+                        title="Print full JSON to console"
+                        variant="quiet"
+                        size="sm"
+                        onPress={() => {
+                          try { console.log("Template JSON", JSON.stringify(template, null, 2)); } catch {}
+                          notify("Template", "Printed full JSON to the console.");
+                        }}
+                      />
+                    )}
                   </>
                 )}
-              </ScrollView>
-            )}
-          </View>
-
-          <View style={{ padding: 12 }}>
-            <Pressable onPress={() => setShowTpl(false)} style={{ backgroundColor: "#0ea5e9", padding: 12, borderRadius: 10, alignItems: "center" }}>
-              <Text style={{ color: "white", fontWeight: "800" }}>Close</Text>
-            </Pressable>
-          </View>
-        </View>
+              </View>
+            </ScrollView>
+          )}
+        </SafeAreaView>
       </Modal>
-    </ScrollView>
+    </Screen>
   );
 }

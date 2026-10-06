@@ -1,8 +1,9 @@
 // src/components/CardShell.js
+// Study-card surface (front: white index card; back: soft highlighter tint).
+// F1 owns the surface only; flip/swipe behaviour lives in FlipDrill (F3).
 import React from "react";
-import { View, StyleSheet, Image } from "react-native";
-
-const BEAR = require("../../assets/BEARlogo.png");
+import { View, StyleSheet } from "react-native";
+import { colors, elevation, radius, spacing } from "../theme";
 
 export default function CardShell({
   width = 720,
@@ -14,66 +15,30 @@ export default function CardShell({
   const isBack = variant === "back";
 
   return (
-    <View
-      style={[
-        styles.shell,
-        {
-          width,
-          height,
-          backgroundColor: isBack ? "#FDB515" : "#FFFFFF",
-        },
-        style,
-      ]}
-    >
-      {/* Full-bleed watermark: centered + overscaled so the visible bear covers the card */}
-      <View style={styles.watermarkWrap} pointerEvents="none">
-        <Image
-          source={BEAR}
-          style={[styles.watermarkImg, isBack && styles.watermarkImgBack]}
-          resizeMode="contain"
-        />
-      </View>
-
-      {/* Foreground content */}
+    <View style={[styles.shell, isBack ? styles.back : styles.front, { width, height }, style]}>
+      {/* Index-card rule: a quiet cue for which side is showing */}
+      <View
+        pointerEvents="none"
+        style={[styles.rule, { backgroundColor: isBack ? colors.cardBackBorder : colors.accentSoft }]}
+      />
       <View style={styles.inner}>{children}</View>
     </View>
   );
 }
 
-const RADIUS = 24;
-
 const styles = StyleSheet.create({
   shell: {
-    borderRadius: RADIUS,
-    overflow: "hidden", // clip to rounded corners
-    shadowColor: "#000",
-    shadowOpacity: 0.18,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 6,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    overflow: "hidden",
+    ...elevation.medium,
   },
-
-  // A full-card absolute layer that centers the watermark image
-  watermarkWrap: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  // Overscale so the visible bear covers the card even if the PNG has padding
-  // Tweak 135–160% to taste
-  watermarkImg: {
-    width: "120%",
-    height: "120%",
-    opacity: 0.12,
-  },
-  watermarkImgBack: {
-    transform: [{ scaleX: -1 }], // mirror the bear on the back
-  },
-
+  front: { backgroundColor: colors.cardFront, borderColor: colors.cardBorder },
+  back: { backgroundColor: colors.cardBack, borderColor: colors.cardBackBorder },
+  rule: { position: "absolute", left: 0, right: 0, top: 0, height: 6 },
   inner: {
     flex: 1,
-    paddingHorizontal: 16,
+    paddingHorizontal: spacing.lg,
     alignItems: "center",
     justifyContent: "center",
   },

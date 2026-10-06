@@ -4,14 +4,14 @@ import {
   View,
   Text,
   Platform,
-  ActivityIndicator,
-  Pressable,
-  Alert,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 import { Animated } from "react-native";
 import { API_BASE } from "../config";
 import { saveLastDeck, saveTemplate } from "../utils/cache";
+import {
+  BrandMark, Button, CardStackGlyph, Notice, PageHeader, Screen, Surface,
+  USE_NATIVE_DRIVER, notify, useReducedMotion,
+} from "../ui";
 import styles from "../styles/screens/BuildScreen.styles";
 
 function formatMs(ms) {
@@ -36,17 +36,22 @@ export default function BuildScreen({ route, navigation }) {
     navigation.reset({ index: 0, routes: [{ name: "Upload" }] });
   };
 
+  const reduceMotion = useReducedMotion();
   const pulse = useRef(new Animated.Value(0)).current;
   useEffect(() => {
+    if (reduceMotion) {
+      pulse.setValue(1);
+      return undefined;
+    }
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 600, useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 0, duration: 600, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1, duration: 600, useNativeDriver: USE_NATIVE_DRIVER }),
+        Animated.timing(pulse, { toValue: 0, duration: 600, useNativeDriver: USE_NATIVE_DRIVER }),
       ])
     );
     loop.start();
     return () => loop.stop();
-  }, []);
+  }, [reduceMotion]);
   const scale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.12] });
   const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] });
 
@@ -99,7 +104,7 @@ export default function BuildScreen({ route, navigation }) {
         clearInterval(timerRef.current);
 
         if (Array.isArray(json.warnings) && json.warnings.length) {
-          Alert.alert("Some sections had less material", json.warnings.join("\n\n"), [{ text: "OK" }]);
+          notify("Some sections had less material", json.warnings.join("\n\n"), [{ text: "OK" }]);
         }
 
         const serverTotal = json?.metrics?.total_ms;
@@ -142,16 +147,24 @@ export default function BuildScreen({ route, navigation }) {
       : "Building your deck…";
 
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={["#032e5d", "#003262"]} style={styles.topGrad} />
+    <Screen center maxWidth="narrow">
+      <PageHeader
+        align="center"
+        eyebrow={<BrandMark />}
+        title="Flashcard Builder"
+        subtitle={headline}
+      />
 
-      <Text style={styles.title}>Flashcard Builder</Text>
-      <Text style={styles.subtitle}>{headline}</Text>
-
-      <View style={styles.card}>
+      <Surface variant="raised" padding="xl" style={styles.card}>
         {phase !== "error" ? (
           <>
-            <ActivityIndicator size="large" color="#FDB515" />
+            <Animated.View
+              style={{ transform: [{ scale }], opacity }}
+              accessibilityRole="progressbar"
+              accessibilityLabel={headline}
+            >
+              <CardStackGlyph size={56} />
+            </Animated.View>
             <Text style={styles.cardTitle} numberOfLines={2}>{filename}</Text>
 
             <View style={styles.progressRow}>
@@ -161,41 +174,24 @@ export default function BuildScreen({ route, navigation }) {
               <Text style={styles.progressLabel}>Generate</Text>
             </View>
 
-            <Text style={{ color:"#93c5fd", fontWeight:"800", marginTop: 8 }}>
+            <Text style={styles.elapsed}>
               Elapsed: {formatMs(elapsedMs)}
             </Text>
 
             <Text style={styles.hint}>This can take a moment for larger PDFs.</Text>
 
-            <View style={{ height: 8 }} />
-            <Animated.Text
-              style={[styles.cuteEmoji, { transform: [{ scale }], opacity }]}
-              accessibilityRole="image"
-              accessibilityLabel="Loading"
-            >
-              📘
-            </Animated.Text>
-
-            <View style={{ height: 16 }} />
-            <Pressable style={[styles.btn, styles.btnHollow]} onPress={onHome}>
-              <Text style={[styles.btnTxt, styles.btnTxtHollow]}>Home</Text>
-            </Pressable>
+            <Button title="Home" variant="secondary" onPress={onHome} style={styles.homeBtn} />
           </>
         ) : (
           <>
-            <Text style={styles.errorText}>{errMsg}</Text>
-            <View style={{ height: 16 }} />
+            <Notice tone="error" message={errMsg} style={styles.errorNotice} />
             <View style={styles.btnRow}>
-              <Pressable style={styles.btn} onPress={() => navigation.goBack()}>
-                <Text style={styles.btnTxt}>Back</Text>
-              </Pressable>
-              <Pressable style={[styles.btn, styles.btnSecondary]} onPress={onHome}>
-                <Text style={styles.btnTxtAlt}>Home</Text>
-              </Pressable>
+              <Button title="Back" onPress={() => navigation.goBack()} />
+              <Button title="Home" variant="secondary" onPress={onHome} />
             </View>
           </>
         )}
-      </View>
-    </View>
+      </Surface>
+    </Screen>
   );
 }

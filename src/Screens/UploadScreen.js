@@ -1,16 +1,17 @@
 // src/Screens/UploadScreen.js
 import React, { useEffect, useMemo, useState } from "react";
-import {
-  View, Text, Button, Alert, ActivityIndicator,
-  Platform, ScrollView, Pressable, TextInput,
-} from "react-native";
+import { View, Text, ActivityIndicator, Platform } from "react-native";
 import Slider from "@react-native-community/slider";
 import * as DocumentPicker from "expo-document-picker";
-import { LinearGradient } from "expo-linear-gradient";
 import { API_BASE } from "../config";
 
 import { loadLastDeck, clearCache } from "../utils/cache";
 
+import { colors } from "../theme";
+import {
+  Badge, BrandMark, Button, Chip, ChipGroup, IconButton, MetaLabel,
+  Notice, PageHeader, ProductSteps, Screen, Surface, TextField, notify,
+} from "../ui";
 import styles from "../styles/screens/UploadScreen.styles";
 
 function formatMs(ms) {
@@ -48,7 +49,7 @@ export default function UploadScreen({ navigation }) {
       analyzeFile(f).catch(() => {});
     } catch (e) {
       console.error(e);
-      Alert.alert("Could not open the file picker.");
+      notify("Could not open the file picker.");
     }
   }
 
@@ -149,7 +150,7 @@ export default function UploadScreen({ navigation }) {
     setCardsWanted(prev => prev);
   }
   function next() {
-    if (!file) return Alert.alert("Choose a PDF first");
+    if (!file) return notify("Choose a PDF first");
     const total = Math.max(3, Math.min(30, cardsWanted || 12));
     navigation.navigate("Build", {
       file,
@@ -177,112 +178,114 @@ export default function UploadScreen({ navigation }) {
     return `Recommended number of flashcards: ${rec}  (Range: ${lo}–${hi})`;
   }, [stats]);
 
-  const Chip = ({label, active, onPress}) => (
-    <Pressable
-      onPress={onPress}
-      style={{
-        paddingVertical: 8, paddingHorizontal: 12, borderRadius: 20,
-        borderWidth: 1, borderColor: active ? "#FDB515" : "#334155",
-        backgroundColor: active ? "#09224a" : "#0b1226", marginRight: 8,
-      }}
-    >
-      <Text style={{ color: active ? "#FDB515" : "#cbd5e1", fontWeight: "700" }}>{label}</Text>
-    </Pressable>
-  );
-
   return (
-    <ScrollView
-      contentContainerStyle={[styles.center, !file && styles.centerHero]}
-      style={{ backgroundColor: "#0a0f1f" }}
-    >
-      <View style={{ alignSelf: "stretch", height: 96, marginBottom: 16 }}>
-        <LinearGradient
-          colors={["#032e5d", "#003262"]}
-          style={{ flex: 1, borderBottomWidth: 1, borderBottomColor: "#0C4A6E" }}
+    <Screen scroll maxWidth="narrow" center={!file}>
+      <PageHeader
+        eyebrow={<BrandMark showTagline />}
+        title="Make flashcards"
+        subtitle="Upload a PDF."
+      />
+
+      {cached && (
+        <Surface style={styles.resumeCard}>
+          <MetaLabel>Resume last deck?</MetaLabel>
+          <Text style={styles.resumeSub}>
+            Deck #{cached.deckId}
+            {cached.cardsCount != null ? ` • ${cached.cardsCount} cards` : ""}
+          </Text>
+          <View style={styles.buttonRow}>
+            <Button title="Use cached" size="sm" onPress={resumeCached} />
+            <Button title="Discard" size="sm" variant="secondary" onPress={discardCached} />
+          </View>
+        </Surface>
+      )}
+
+      {file ? (
+        <Button
+          title="Choose PDF"
+          size="lg"
+          variant="secondary"
+          onPress={pick}
+          accessibilityHint="Opens a file picker for PDF documents"
         />
-      </View>
-
-      <Text style={styles.h1}>Make Flashcards</Text>
-      <Text style={styles.subtle}>Upload a PDF.</Text>
-
-      <View style={{ height: 16 }} />
-
-          {cached && (
-            <View style={styles.resumeCard}>
-              <Text style={styles.resumeTitle}>Resume last deck?</Text>
-              <Text style={styles.resumeSub}>
-                Deck #{cached.deckId}
-                {cached.cardsCount != null ? ` • ${cached.cardsCount} cards` : ""}
-              </Text>
-                <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
-                <Pressable style={styles.resumePrimary} onPress={resumeCached}>
-                  <Text style={styles.resumePrimaryTxt}>Use cached</Text>
-                </Pressable>
-                <Pressable style={styles.resumeHollow} onPress={discardCached}>
-                  <Text style={styles.resumeHollowTxt}>Discard</Text>
-                </Pressable>
-              </View>
-            </View>
-          )}
-
-
-      <Button title="Choose PDF" onPress={pick} color="#3b82f6" />
+      ) : (
+        <Surface variant="raised" padding="xl">
+          <ProductSteps />
+          <Button
+            title="Choose PDF"
+            size="lg"
+            onPress={pick}
+            accessibilityHint="Opens a file picker for PDF documents"
+            style={styles.heroBtn}
+          />
+        </Surface>
+      )}
 
       {file && (
-        <View style={{ width: "90%", marginTop: 16 }}>
-          <Text style={styles.filename}>{file.name}</Text>
+        <View style={styles.flow}>
+          <Surface variant="source" padding="md">
+            <MetaLabel>Source</MetaLabel>
+            <Text style={styles.filename}>{file.name}</Text>
+          </Surface>
 
           {analyzing && (
-            <View style={styles.panel}>
-              <ActivityIndicator />
+            <Surface style={styles.inlineRow}>
+              <ActivityIndicator color={colors.accent} />
               <Text style={styles.panelText}>Analyzing document…</Text>
-            </View>
+            </Surface>
           )}
-          {!!err && (
-            <View style={[styles.panel, { borderColor: "#ef4444" }]}>
-              <Text style={[styles.panelText, { color: "#ef4444" }]}>{err}</Text>
-            </View>
-          )}
+          {!!err && <Notice tone="error" title="Analysis failed" message={err} />}
 
           {stats && (
-            <View style={styles.statsCard}>
-              <Text style={styles.kv}><Text style={styles.k}>Pages</Text> <Text style={styles.v}>{stats.pages}</Text></Text>
-              <Text style={styles.kv}><Text style={styles.k}>Words</Text> <Text style={styles.v}>{stats.words}</Text></Text>
-              <View style={{ height: 8 }} />
+            <Surface>
+              <View style={styles.statRow}>
+                <View style={styles.stat}>
+                  <MetaLabel>Pages</MetaLabel>
+                  <Text style={styles.statValue}>{stats.pages}</Text>
+                </View>
+                <View style={styles.stat}>
+                  <MetaLabel>Words</MetaLabel>
+                  <Text style={styles.statValue}>{stats.words}</Text>
+                </View>
+              </View>
               <Text style={styles.rec}>{recText}</Text>
-            </View>
+            </Surface>
           )}
 
-          <View style={{ marginTop: 16, flexDirection: "row", alignItems: "center" }}>
-            <Text style={{ color: "#cbd5e1", marginRight: 8 }}>Coverage:</Text>
-            <Chip
-              label="Even per-page"
-              active={coverageMode === "even"}
-              onPress={() => setCoverage("even")}
-            />
-            <Chip
-              label="Cover sections first"
-              active={coverageMode === "section"}
-              onPress={() => setCoverage("section")}
-            />
+          <View style={styles.coverageRow}>
+            <Text style={styles.fieldLabel}>Coverage:</Text>
+            <ChipGroup label="Coverage">
+              <Chip
+                label="Even per-page"
+                selected={coverageMode === "even"}
+                onPress={() => setCoverage("even")}
+              />
+              <Chip
+                label="Cover sections first"
+                selected={coverageMode === "section"}
+                onPress={() => setCoverage("section")}
+              />
+            </ChipGroup>
           </View>
 
-          <View style={{ width: "100%", marginVertical: 16 }}>
-            <Text style={styles.sliderLabel}>
-              Cards to generate: <Text style={{ color: "#93c5fd", fontWeight: "700" }}>{cardsWanted}</Text>
-            </Text>
+          <View>
+            <View style={styles.sliderHeader}>
+              <Text style={styles.fieldLabel}>Cards to generate</Text>
+              <Badge tone="accent" accessibilityLabel={`${cardsWanted} cards`}>{cardsWanted}</Badge>
+            </View>
             <Slider
               minimumValue={3}
               maximumValue={30}
               step={1}
               value={cardsWanted}
               onValueChange={setCardsWanted}
-              minimumTrackTintColor="#60a5fa"
-              maximumTrackTintColor="#1f2937"
-              thumbTintColor="#93c5fd"
+              minimumTrackTintColor={colors.accent}
+              maximumTrackTintColor={colors.borderStrong}
+              thumbTintColor={colors.accent}
+              accessibilityLabel="Cards to generate"
             />
             {stats && (
-              <View style={{ marginTop: 8 }}>
+              <View style={styles.coverageStats}>
                 <Text style={styles.coverage}>Coverage (pages ≥1 card): {(coveragePages*100).toFixed(0)}%</Text>
                 {sectionsCount > 0 && (
                   <Text style={styles.coverage}>Coverage (sections ≥1 card): {(coverageSecs*100).toFixed(0)}%</Text>
@@ -292,34 +295,36 @@ export default function UploadScreen({ navigation }) {
           </View>
 
           {allocs.length > 0 && (
-            <View style={styles.panel}>
-              <View style={{flexDirection:"row", justifyContent:"space-between", alignItems:"center"}}>
+            <Surface>
+              <View style={styles.planHeader}>
                 <Text style={styles.panelHdr}>Per-section plan (total {cardsWanted}):</Text>
-                <Button title="Reset to recommendation" onPress={resetAllocations} />
+                <Button title="Reset to recommendation" variant="quiet" size="sm" onPress={resetAllocations} />
               </View>
               {allocs.map((a, i) => (
-                <View key={`${a.title}-${i}`} style={styles.allocRow}>
-                  <Text style={styles.allocTitle}>
-                    • {a.title} — p.{a.page_start}–{a.page_end}
-                  </Text>
+                <View key={`${a.title}-${i}`} style={[styles.allocRow, i === allocs.length - 1 && styles.allocRowLast]}>
+                  <View style={styles.allocText}>
+                    <Text style={styles.allocTitle}>{a.title}</Text>
+                    <Text style={styles.allocPages}>p.{a.page_start}–{a.page_end}</Text>
+                  </View>
                   <View style={styles.allocControls}>
-                    <Button title="–" onPress={() => bump(i, -1)} />
-                    <TextInput
+                    <IconButton icon="–" accessibilityLabel={`Fewer cards for ${a.title}`} onPress={() => bump(i, -1)} />
+                    <TextField
                       style={styles.allocInput}
                       keyboardType="number-pad"
                       value={String(a.cards ?? 0)}
                       onChangeText={(t) => setSectionCount(i, t)}
+                      accessibilityLabel={`Cards for ${a.title}`}
                     />
-                    <Button title="+" onPress={() => bump(i, +1)} />
+                    <IconButton icon="+" accessibilityLabel={`More cards for ${a.title}`} onPress={() => bump(i, +1)} />
                   </View>
                 </View>
               ))}
-            </View>
+            </Surface>
           )}
 
-          <Button title="Upload & Build" onPress={next} color="#10b981" />
+          <Button title="Upload & Build" size="lg" fullWidth onPress={next} />
         </View>
       )}
-    </ScrollView>
+    </Screen>
   );
 }

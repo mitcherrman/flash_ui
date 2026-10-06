@@ -991,3 +991,213 @@ The frontend still has no lint, test or typecheck scripts (unchanged from F0).
 - **F1–F4 (frontend):** configure the API with `EXPO_PUBLIC_API_BASE` / `.env.local`; never reintroduce a required untracked module. The §26 global criterion (`npm ci && expo export` on a fresh clone) now holds.
 - **F5:** extend `flashcards/tests/` rather than starting over. `FakeOpenAI` plus `make_pdf` is the reusable seam, and the scratch HTTP stub pattern (`OPENAI_BASE_URL`) works with the real SDK. Remaining F5 acceptance items from §26: `check --deploy`, throttling, upload limits, path-free errors in general, env-driven settings, plus item 1 above.
 - **F6:** fixture page numbers can now come from a real generate run against `make_pdf`-style synthetic documents. The fixture must be shaped exactly like the `hand`/`toc`/`template` responses, including `page_source`.
+
+---
+
+## 32. F1 — Visual foundation
+
+**Workstream:** `FLASH-V2-F1` (2026-10-06). Frontend only, on branch `flashv2/f1-visual-foundation`, based on `9483636d5716528855fffd7f32000b8ee60b9aef` (F0.5 frontend head). The backend was read only: the certified F0.5 SHA `b3cc888acbf2bb493f1033384659c0aadc50c967` was used unmodified for verification. No deployment, no OpenAI calls, no private documents. `master` untouched.
+
+Scope: design tokens, shared primitives, a cross-platform notice/dialog, accessibility and motion conventions, and a **shallow** restyle of every existing screen. No workflow was redesigned. No API, cache or navigation semantics changed (verified by diff audit, §32.10).
+
+### 32.1 Design system
+
+**Identity.** A warm, light study surface with dark ink, one restrained **teal** accent for actions, and a soft **highlighter amber** reserved for the back of study cards. The UC Berkeley Blue/Gold palette and the blurry bear watermark are retired from the UI (§32.4). The product line *Source → Structure → Cards → Study* appears as the brand tagline and as a step strip on the empty Upload screen. The mark is two offset rounded rectangles (a card stack) built from plain Views, with no artwork.
+
+| Token group | Values (see `src/theme/tokens.js`) |
+|---|---|
+| Surfaces | `bg` #F5F3EE (paper) · `surface` #FFFFFF · `surfaceSunken` #EEEBE4 · `sourceSurface` #FAF8F3 + `sourceRule` #8A8375 |
+| Text | `text` #1A2231 (ink) · `textSecondary` #434D5F · `textMuted` #5C6575 · `textOnAccent` #FFFFFF |
+| Lines | `border` #E3DED4 (decorative) · `borderStrong` #8A8375 (control boundaries, ≥3:1) |
+| Accent | `accent` #0F6B5E · `accentHover` #0C5A4F · `accentPressed` #094A41 · `accentSoft` #E3F0EC · `accentText` #0C5A4F |
+| Study card | front #FFFFFF / border #E3DED4 · back `cardBack` #FFF6DF / border #F0D9A2 · `highlightText` #7A4D0B |
+| Status | success #1B6E44 / #E5F3EA · warning #7F5300 / #FFF3D6 · error #A8231B / #FCEBE9 · info = accent |
+| Focus | `focus` #3157CF (2 px outline, 2 px offset) |
+| Spacing | 4-pt scale: 2, 4, 8, 12, 16, 24, 32, 48 |
+| Radius | sm 8 · md 12 (buttons, rows) · lg 16 (panels) · xl 24 (study cards) · pill |
+| Elevation | `none`, `low`, `medium`, `high`; web uses `boxShadow` (this also removes the RN-web `shadow*` deprecation warning), native uses `shadow*`/`elevation` |
+| Type (system fonts, no font loading) | display 32/40 · title 26/32 · heading 18/24 · body 16/24 · small 14/20 · label 15/20 (controls) · meta 12/16 uppercase · cardFront 26/34 · cardBack 22/30 · excerpt 15/22 italic |
+| Motion | fast 120 ms (press/hover) · standard 200 ms (panels, dialogs) · deliberate 300 ms (card flip, F3-owned); standard easing `cubic-bezier(0.2,0,0,1)` |
+| Layout | breakpoints: tablet 600, desktop 1024 · gutters 16 / 24 / 32 · max widths narrow 640, content 880, wide 1120 · card max 900 · touch target 44 |
+
+**Contrast.** Every text pair used is ≥4.5:1, and every control boundary and focus ring is ≥3:1. This is asserted by `tests/theme.test.mjs` (WCAG 2.x formula; 27 text pairs and 6 non-text pairs).
+
+### 32.2 Theme architecture
+
+- `src/theme/tokens.js`: **pure data**, with no React Native imports, so `node --test` can check it. It is the only place raw colours may appear.
+- `src/theme/breakpoints.js`: pure helpers `getBreakpoint`, `resolveGutter`, `resolveMaxWidth` (unit-tested).
+- `src/theme/index.js`: the public entry point. It re-exports the tokens and adds `text.*` ready styles, `elevation.*`, `easing.*` (RN `Easing.bezier`) and `webTransition()`.
+- `src/styles/theme.js` (the old partial Berkeley token set) is **deleted**. All style files import from `src/theme`.
+- **Rule (tested):** no raw hex colours in `src/**` or `App.js` outside `src/theme/`. The one exemption is `src/utils/exportHTML.js`, a standalone printable HTML document. `npm test` fails if a screen adds one.
+
+### 32.3 Shared primitives (`src/ui/`, barrel `src/ui/index.js`)
+
+| Primitive | Purpose |
+|---|---|
+| `Button` / `IconButton` | The single button. Variants `primary`, `secondary`, `quiet`, `danger`; sizes `sm`/`md`/`lg`, all with a ≥44 px target. Hover, pressed (with a 0.98 scale unless reduced motion), disabled (readable, `aria-disabled`) and `loading` (spinner, `busy`) states. `accessibilityRole="button"`; the label defaults to the title. `IconButton` is a 44×44 square and requires a label |
+| `Surface` | Surface roles: `panel`, `raised`, `sunken`, `source` (quote-style left rule). Passing `onPress` makes it an interactive card (role button, hover lift, pressed state) |
+| `Screen` | Screen shell: background, safe areas (`react-native-safe-area-context`), responsive gutters, a centred content column with a max width, optional scroll and vertical centring |
+| `PageHeader` | App-level header: optional left/right action row, eyebrow, title (exposed as a heading), subtitle |
+| `Notice` | Inline status: `info`, `success`, `warning`, `error`. Errors and warnings use `role=alert`/assertive |
+| `StatusView` | Full-area loading, empty or error state; F2/F3 add recovery actions via `action` |
+| `Chip` / `ChipGroup` | Single-choice pills exposed as `radio` inside a `radiogroup` |
+| `Badge` / `MetaLabel` | Non-interactive pill (tones) and the uppercase metadata label |
+| `TextField` | Themed input: 44 px, ≥3:1 boundary, accent border while focused |
+| `BrandMark` / `CardStackGlyph` / `ProductSteps` | Wordmark and glyph; the Source → Structure → Cards → Study strip |
+| `notify` + `NotifyHost` | Cross-platform alert (§32.6) |
+| `useReducedMotion`, `useMotionDuration`, `FadeIn`, `USE_NATIVE_DRIVER` | Motion primitives (§32.8) |
+| `useLayout` | Window facts: breakpoint, gutter, landscape, web |
+| `installWebGlobalStyles` | Web-only global CSS (§32.7) |
+
+`src/components/CardShell.js` (study-card surface) now draws a white index card for the front and a highlighter-amber card for the back, with a 6 px top rule, a hairline border and `elevation.medium`. Its props are unchanged.
+
+### 32.4 Global screen changes and branding
+
+- **Branding:** the Berkeley Blue/Gold palette and the "Berkeley palette" comment are removed. `assets/BEARlogo.png` is no longer referenced or bundled; the file stays in `assets/` and can be deleted later. The app is light throughout, which matches `app.json` `userInterfaceStyle: "light"`. `StatusBar style="dark"` is set in `App.js`. The web document title is "Flashcard Maker" (React Navigation `documentTitle`).
+- **App root (`App.js`):** `SafeAreaProvider`, a themed `NavigationContainer` (no white flashes between screens), a `NotifyHost` outside the navigator, web global styles.
+- **Stack (`Stack.js`):** routes unchanged. Only `contentStyle` (theme background) changed, plus `animation: "none"` when reduced motion is on.
+- **Upload (F2-owned, visual only):** `Screen` (narrow column, vertically centred until a file is chosen), brand header, and a hero panel with the step strip and "Choose PDF". The resume card, source panel, stats, coverage chips, slider, per-section plan (`IconButton` ± and `TextField`) and "Upload & Build" all use primitives. The 96 px empty gradient bar is gone. Every handler is verbatim, so the coverage chips are **still inert** and "Reset to recommendation" is **still a no-op**.
+- **Build (F2):** centred `Screen` with a raised panel. The pulsing 📘 emoji is replaced by the pulsing card-stack glyph (static under reduced motion). The error state uses `Notice` with Back/Home buttons. It **still reads "Uploading…"** throughout (not fixed).
+- **Picker (F3, visual):** a two-column grid of mode cards (one column on phones) and a "Deck tools" panel holding the four existing actions. **Game 1 is hidden** (§32.5). Visible mode labels changed from "Game 2 — Mastery / Short-answer drill" and "Game 3 — Multiple Choice / Answer with distractors" to **"Flip Drill"** and **"Multiple Choice"** with accurate one-line descriptions. Routes and params are unchanged. The template modal is restyled on a light background with a column-aligned header.
+- **Flip Drill (F3, visual):** theme background; Back, TOC, Prev and Next are `Button`s; the source panel uses the `source` surface; the counter uses tabular numbers; loading and error use `StatusView`. The flip target has `role=button` with the label "Show answer"/"Show question". Layout math, swipe and navigation are unchanged.
+- **Multiple Choice (F3, visual):** themed options with success/error tints plus coloured text (colour is not the only cue). The 1/2 mode toggle is now `Chip`s, still labelled **1** and **2**, with descriptive accessibility labels. The right/wrong counters are `Badge`s with ✓/✗ glyphs. Prev, Next, Back and TOC are `Button`s. Below 480 px the counter shows "1/4" (spoken "Card 1 of 4"), because 44 px targets left no room for "Card 1/4". The empty deck shows `StatusView` "No cards.".
+- **TOC (F3, visual):** a header (Back, Home, Template) in a centred column, a `TextField` search, rows as interactive `Surface`s with an ordinal `Badge`, the page, the section as accent metadata and the question. Safe area now comes from `safe-area-context` on both platforms (it replaces the Android `StatusBar.currentHeight` padding). The list is centred with a max width on web.
+- **TemplateBar (F3, visual):** a white bottom bar with a secondary `Button`; the modal is light. Its inline styles moved into the previously unused `TemplateBar.styles.js`. The bar now uses `safe-area-context` (bottom inset on Android edge-to-edge as well).
+
+**Pre-existing header bug fixed (shared presentation):** on web landscape and desktop widths, Flip Drill's and MC's absolutely centred "Card n/N" overlay spanned the top bar and covered the **Back** button. A click on Back hit the overlay and did nothing. I reproduced this on an untouched build of `9483636` at 1440×900. Fix: `pointerEvents: "none"` on the overlay style (`counterLandscape`). There is no navigation change.
+
+### 32.5 Game 1 decision
+
+The "Game 1 — Curate" card is **removed from the Picker**: it was a verified dead-end placeholder (§10, §21). The `Game1` route and `src/Screens/Game1Screen.js` are **kept unchanged**, so nothing that might navigate there breaks. Game 1 was not implemented. If F3 or a later phase builds it, re-add a card in `GamePicker.js` (the comment marks the place).
+
+### 32.6 Alert / dialog foundation
+
+- `notify(title, message?, buttons?)` takes the **same arguments as `Alert.alert`**.
+  - **Native:** it calls `Alert.alert` unchanged.
+  - **Web:** it queues a themed modal dialog rendered by `<NotifyHost/>`, mounted once in `App.js` outside the navigator, so a dialog raised just before `navigation.reset` survives it (the Build warnings case).
+  - Dialogs are shown one at a time in FIFO order. Button styles `cancel` and `destructive` map to secondary and danger buttons. Esc closes (the RN-web Modal's `onRequestClose`; it runs the cancel button, or the only button). Focus is trapped by the RN-web Modal; the dialog has `role=alert`.
+  - The queue logic is pure (`src/ui/notifyStore.js`) and covered by `tests/notifyStore.test.mjs`.
+- **Migrated:** every `Alert.alert` call in the app. Each was a one-line, same-signature swap, so native behaviour is identical and web goes from silent to visible:
+  - Upload: picker failure, "Choose a PDF first".
+  - Build: "Some sections had less material" warnings.
+  - Picker: export failures, the native "Exported" path, template errors, the dev cache confirmations, "Printed full JSON".
+- **Unmigrated Alert usage:** none remains. **Verified** on web: the Build warnings path was triggered with the stub (Cell Division planned 6 > available), the dialog was visible over the Picker, and OK dismissed it. F2/F3 may replace dialogs with inline `Notice`s where that reads better (for example, the Build warnings in-page, per §26 F2).
+
+### 32.7 Accessibility
+
+- **Focus:** web global CSS gives every focusable element a `:focus-visible` outline (2 px `focus` colour, 2 px offset). It covers Pressables not yet migrated (MC options, the flip target). The ring was verified on keyboard Tab to the Picker mode card at all five viewports.
+- **Targets:** all primitives are ≥44 px (Back/TOC were 35 px). The deliberate exception is MC options in mobile landscape, which stay 40 px (F4-owned layout).
+- **Roles and labels:**
+  - `Button`, `IconButton` and interactive `Surface` are buttons with labels (e.g. "Fewer cards for Photosynthesis", "Previous card", "Table of contents").
+  - Chips are radios in a radiogroup. `PageHeader` titles are headings.
+  - `Notice` uses alert/live regions. The loading state is a progressbar with a label.
+  - The flip target is a labelled button; the "Show context" switch is labelled. MC options expose `selected`.
+- **Disabled and busy states** keep readable text (`disabledText` on `disabledBg` ≥4.5:1) and set `aria-disabled`/`busy`. Verified on the Picker during export: the mode cards and HTML export are disabled, and "Preparing export…" shows a spinner.
+- **Colour is never the only signal:** MC answers add coloured text, the score badges carry ✓/✗, and step numbers are written out.
+- **Contrast:** tested (§32.1).
+
+### 32.8 Motion
+
+- `useReducedMotion()` uses one shared subscription. It reads `AccessibilityInfo.isReduceMotionEnabled` and its change events; on web that is `prefers-reduced-motion`, whose MediaQueryList event is handled.
+- Under reduced motion:
+  - **Card flip is instant:** FlipDrill `duration` is 0, otherwise `motion.duration.deliberate` (300 ms, same as before). Verified: with `prefers-reduced-motion: reduce` emulated, the back face is fully rotated 40 ms after the tap. Normal motion is mid-rotation at 100 ms and complete by 500 ms.
+  - The stack has no slide (native).
+  - The Build pulse stops.
+  - Button and Surface skip the press scale.
+  - `FadeIn` is instant.
+  - Web CSS transitions are suppressed globally.
+- Animated calls now use `USE_NATIVE_DRIVER` (false on web), which silences the RN-web `useNativeDriver` warning.
+- **Not changed (F3):** the swipe gesture, the swipe spring, and the flip choreography beyond its duration.
+
+### 32.9 Responsiveness
+
+Scripted walk (headless Edge over DevTools, real Upload → Analyze → Build → Picker → Flip Drill (flip) → Template modal → Picker → MC (answer, endless mode) → TOC → Template). It ran against the **real b3cc888 backend** (a `git archive` in scratch) with a **local LLM stub** behind `OPENAI_BASE_URL` and a synthetic 6-page PDF with an uneven TOC.
+
+| Viewport | Result |
+|---|---|
+| 390×844 (touch) | walk passes; `scrollWidth == innerWidth` and 0 elements past the right edge on all 12 captured screens |
+| 844×390 (touch) | walk passes; no horizontal overflow; MC (all 4 options plus Prev/Next) fits. **Flip Drill landscape debt remains:** the TemplateBar still covers the lower card (F4, unchanged by F1) |
+| 768×1024 (touch) | walk passes; no overflow |
+| 1280×800 | walk passes; no overflow |
+| 1440×900 | walk passes, including the warnings dialog; no overflow; content columns capped (Upload 640, Picker/TOC/template 880, card 900) |
+
+Also verified: the loading state (Flip Drill with a delayed `hand`), the empty state (MC on a missing deck → "No cards."), the error state (TOC fetch failure → error `Notice`), the Build error state (HTTP 500 → `Notice` with Back/Home), the busy/disabled Picker, and the resume card. No console warnings or exceptions were recorded in any walk (log and debug lines filtered).
+
+### 32.10 Contract and correctness preserved
+
+- The diff audit of `src/` and `App.js` shows no changed `fetch`/API/cache/timer lines. Navigation lines changed only by wrapper or indentation, except the removed Game 1 entry.
+- `EXPO_PUBLIC_API_BASE` handling (`src/config.js`) is untouched, and no `src/env.js` is required.
+- Against b3cc888, analyze returned TOC ranges 1–2/3–4/5–5/6–6, and generate returned `page_source: "toc"`, `template.title` = the deck name, and dense ordinals 1..N with grounded pages.
+- **Native:** the `expo export` Android and iOS bundles build (§32.12). No device or simulator run was possible here (unchanged from F0/F0.5).
+
+### 32.11 New configuration
+
+`EXPO_PUBLIC_SHOW_DEV_TOOLS=1` (documented in `.env.example`) shows the Picker's developer controls: "Dev: Clear cache (this deck)", "Dev: Clear ALL cache", and the template modal's "Print full JSON to console". They are hidden by default in dev and production builds. The code is kept.
+
+### 32.12 Checks
+
+| Check | Result |
+|---|---|
+| `npm ci` | ✅ |
+| `npm test` (new script: `node --test`, no dependencies) | ✅ 42 tests: contrast, token scales, breakpoints/gutters, no raw hex, notify queue |
+| `expo export --platform web` | ✅ |
+| `expo export --platform android` / `ios` | ✅ (1128 / 1125 modules) |
+| `npx expo-doctor@latest` | ⚠️ 16/18, the **same** two patch-alignment findings as F0/F0.5 (deferred to F5) |
+| Fresh-clone check of the pushed commit | see the final report / commit notes |
+
+### 32.13 Visual debt deliberately left
+
+**F2 (Upload/Build):**
+
+- inert coverage chips;
+- Reset no-op;
+- plan-sum drift;
+- "Uploading…" never advances;
+- Home doesn't cancel the build;
+- the resume card shows "Deck #N", not the document name;
+- the recommendation is a sentence, not a structured summary;
+- the section plan is a list, not a "structure map" (`ProductSteps` and `Surface variant="source"` are the intended building blocks).
+
+**F3 (study):**
+
+- MC mode labels "1"/"2";
+- MC double-advance;
+- excerpt visible before the flip;
+- MC has no source context;
+- TOC push-stack growth;
+- duplicate Template modals (the global `TemplateBus`);
+- stale/missing-deck states (Flip Drill still spins forever on an empty deck; the `StatusView` `action` slot is ready for "Back to upload");
+- the export button says "PDF" but produces HTML on web;
+- printable export (`exportHTML.js`) still uses the old gold card backs and the duplex ordering bug;
+- `Game1Screen` itself is unstyled (unreachable).
+
+**F4:**
+
+- web/native landscape Flip Drill (TemplateBar overlap, controls below the fold);
+- MC landscape 40 px options and the 1-line question clamp;
+- keyboard shortcuts;
+- tablet/desktop two-column study layouts (extend `useLayout`/breakpoints rather than adding a parallel system);
+- the device pass.
+
+**F5:**
+
+- `expo-linear-gradient` is now unused (remove with the patch alignment);
+- `react-native-reanimated`/`gesture-handler` are still unused.
+
+### 32.14 File ownership guidance
+
+| Owner | Files |
+|---|---|
+| **F1 foundation** (extend rather than fork; keep pure modules RN-free) | `src/theme/*`, `src/ui/*`, `src/components/CardShell.js`, `App.js`, `tests/*`, `npm test` script |
+| F2 | `src/Screens/UploadScreen.js`, `src/Screens/BuildScreen.js` and their `styles/screens/*`. Compose from `src/ui` and add F2-specific pieces under `src/components/source/*` |
+| F3 | `GamePicker`, `Game1Screen`, `Game2Screen`, `GameMC`, `TOCScreen`, `FlipDrill`, `TemplateBar`, `TemplateBus`, `exportHTML`, `Stack.js` (routing) and their `styles/**` |
+| F4 | responsive additions to `src/theme/breakpoints.js` / `src/ui/useLayout.js` (coordinate with F1 owner), plus responsive edits in F3 files after F3 merges |
+
+Conventions for later phases:
+
+1. Never add raw colours. Add a token to `src/theme/tokens.js` (the test enforces this).
+2. Use `Button`/`Surface`/`Notice`/`StatusView` before writing a new Pressable or panel.
+3. Use `notify()` instead of `Alert.alert`.
+4. Gate any new animation with `useReducedMotion()`.
+5. Keep touch targets at `layout.touchTarget`.
+6. Run `npm test` before committing.
