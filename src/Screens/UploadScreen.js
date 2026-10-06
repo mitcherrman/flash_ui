@@ -1,91 +1,116 @@
 // src/Screens/UploadScreen.js
-import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, ActivityIndicator, Platform } from "react-native";
-import Slider from "@react-native-community/slider";
+// Source → Structure → plan. Pick a PDF, analyze it (one request per pick),
+// review the recommendation, adjust the deck size / section plan, build.
+// State lives in src/source/plan.js (pure, unit-tested).
+import React, { useEffect, useReducer, useRef, useState } from "react";
+import { ActivityIndicator, Platform, Text, View } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import { API_BASE } from "../config";
 
 import { loadLastDeck, clearCache } from "../utils/cache";
+import {
+  ANALYZE_PATH, appendFile, describeAnalyzeError, postMultipart,
+} from "../source/api";
+import { createRun, runRequest } from "../source/buildRun";
+import {
+  buildParams, initialPlanState, isChangedFromRecommendation, isPdfFile,
+  planLimits, planReducer, planSummary, validatePlan,
+} from "../source/plan";
 
 import { colors } from "../theme";
 import {
-  Badge, BrandMark, Button, Chip, ChipGroup, IconButton, MetaLabel,
-  Notice, PageHeader, ProductSteps, Screen, Surface, TextField, notify,
+  Button, BrandMark, MetaLabel, Notice, PageHeader, ProductSteps, Screen, Surface, notify,
 } from "../ui";
+import SourceCard from "../components/source/SourceCard";
+import StructureSummary from "../components/source/StructureSummary";
+import CardCountControl from "../components/source/CardCountControl";
+import SectionPlan from "../components/source/SectionPlan";
 import styles from "../styles/screens/UploadScreen.styles";
 
-function formatMs(ms) {
-  const s = Math.max(0, Math.floor((ms || 0) / 1000));
-  const m = Math.floor(s / 60);
-  const ss = String(s % 60).padStart(2, "0");
-  return `${m}:${ss}`;
-}
+const IS_WEB = Platform.OS === "web";
 
 export default function UploadScreen({ navigation }) {
-  const [file, setFile]               = useState(null);
-  const [cardsWanted, setCardsWanted] = useState(12);
-  const [coverageMode, setCoverage]   = useState("even"); // "even" | "section"
+  const [plan, dispatch] = useReducer(planReducer, initialPlanState);
+  const seq = useRef(0); // analysis request ids
+  const runRef = useRef(null); // the in-flight analyze request
 
-  const [analyzing, setAnalyzing] = useState(false);
-  const [stats, setStats]         = useState(null);
-  const [err, setErr]             = useState("");
+  // Leaving the screen drops any in-flight analysis.
+  useEffect(() => () => runRef.current?.cancel(), []);
 
-  const [allocs, setAllocs]        = useState([]);
-  const [allocDirty, setAllocDirty]= useState(false);
+  function analyze(file, requestId) {
+    runRef.current?.cancel();
+    const run = createRun();
+    runRef.current = run;
+    runRequest({
+      run,
+      request: async (signal) => {
+        const formData = await appendFile(new FormData(), file, {
+          isWeb: IS_WEB,
+          fetchImpl: fetch,
+          signal,
+          FileImpl: IS_WEB ? File : undefined,
+        });
+        return postMultipart({ fetchImpl: fetch, url: `${API_BASE}${ANALYZE_PATH}`, formData, signal });
+      },
+      onSuccess: (stats) => dispatch({ type: "analyzed", requestId, stats }),
+      onError: (err) => {
+        console.error("[UploadScreen] analyze failed", err);
+        dispatch({ type: "analyzeFailed", requestId, error: { ...describeAnalyzeError(err), retryable: true } });
+      },
+    });
+  }
 
   async function pick() {
+    let res;
     try {
-      const res = await DocumentPicker.getDocumentAsync({
+      res = await DocumentPicker.getDocumentAsync({
         type: "application/pdf",
         copyToCacheDirectory: true,
       });
-      if (res.canceled) return;
-      const f = res.assets[0];
-      setFile(f);
-      setStats(null);
-      setErr("");
-      setAllocs([]);
-      setAllocDirty(false);
-      analyzeFile(f).catch(() => {});
     } catch (e) {
-      console.error(e);
-      notify("Could not open the file picker.");
+      console.error("[UploadScreen] picker failed", e);
+      notify("Couldn't open the file picker", "Try again.");
+      return;
     }
+    if (res.canceled || !res.assets?.length) return; // keep the current document
+
+    const a = res.assets[0];
+    // Plain, serializable descriptor (the web File object stays out of nav params).
+    const file = {
+      uri: a.uri,
+      name: a.name ?? "document.pdf",
+      mimeType: a.mimeType ?? "application/pdf",
+      size: a.size ?? null,
+    };
+    const requestId = ++seq.current;
+    runRef.current?.cancel();
+    dispatch({ type: "pick", file, requestId });
+
+    if (!isPdfFile(file)) {
+      dispatch({
+        type: "analyzeFailed",
+        requestId,
+        error: { title: "That file isn't a PDF", message: "Choose a PDF document.", retryable: false },
+      });
+      return;
+    }
+    analyze(file, requestId);
   }
 
-  async function analyzeFile(f) {
-    try {
-      setAnalyzing(true);
-      const fd = new FormData();
-      const filename = f.name ?? "document.pdf";
-      const mime     = f.mimeType ?? "application/pdf";
-
-      if (Platform.OS === "web") {
-        const blob = await fetch(f.uri).then(r => r.blob());
-        fd.append("file", new File([blob], filename, { type: mime }));
-      } else {
-        fd.append("file", { uri: f.uri, name: filename, type: mime });
-      }
-
-      const url = `${API_BASE}/api/flashcards/analyze/`;
-      const r   = await fetch(url, { method: "POST", body: fd });
-      if (!r.ok) {
-        const t = await r.text();
-        throw new Error(`HTTP ${r.status} – ${t.slice(0,150)}`);
-      }
-      const json = await r.json();
-      setStats(json);
-      if (json?.recommended_cards) setCardsWanted(json.recommended_cards);
-    } catch (e) {
-      console.error("[UploadScreen] analyze error", e);
-      setErr(String(e));
-    } finally {
-      setAnalyzing(false);
-    }
+  function retry() {
+    if (!plan.file) return;
+    const requestId = ++seq.current;
+    dispatch({ type: "retry", requestId });
+    analyze(plan.file, requestId);
   }
 
+  function remove() {
+    runRef.current?.cancel();
+    dispatch({ type: "clear", requestId: ++seq.current });
+  }
+
+  // ── resume last deck ──
   const [cached, setCached] = useState(null);
-
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -94,34 +119,6 @@ export default function UploadScreen({ navigation }) {
     })();
     return () => { alive = false; };
   }, []);
-
-
-
-  useEffect(() => {
-    if (!stats?.per_section_allocation) return;
-    const total = cardsWanted || stats.recommended_cards || 12;
-    const seeded = stats.per_section_allocation.map(s => ({
-      title: s.title,
-      page_start: s.page_start,
-      page_end: s.page_end,
-      share: s.share ?? (stats.words ? (s.words / stats.words) : 0),
-      cards: Math.max(0, Math.round((s.cards ?? 0) || ((s.share ?? 0) * total))),
-    }));
-    setAllocs(seeded);
-    setAllocDirty(false);
-  }, [stats]);
-
-  useEffect(() => {
-    if (!allocs.length || allocDirty) return;
-    const tot = cardsWanted || 0;
-    const shares = allocs.map(a => a.share ?? 0);
-    const sumShare = shares.reduce((s, x) => s + x, 0) || 1;
-    const next = allocs.map((a, i) => ({
-      ...a,
-      cards: Math.max(0, Math.round((shares[i] / sumShare) * tot))
-    }));
-    setAllocs(next);
-  }, [cardsWanted]);
 
   function resumeCached() {
     if (!cached?.deckId) return;
@@ -133,196 +130,127 @@ export default function UploadScreen({ navigation }) {
     setCached(null);
   }
 
-
-  function setSectionCount(index, val) {
-    const n = Math.max(0, Math.min(30, parseInt(val || "0", 10)));
-    const next = allocs.map((a, i) => (i === index ? { ...a, cards: n } : a));
-    setAllocs(next);
-    setAllocDirty(true);
-    const total = next.reduce((s, a) => s + (a.cards || 0), 0);
-    setCardsWanted(total);
-  }
-  function bump(index, delta) {
-    setSectionCount(index, (allocs[index]?.cards || 0) + delta);
-  }
-  function resetAllocations() {
-    setAllocDirty(false);
-    setCardsWanted(prev => prev);
-  }
-  function next() {
-    if (!file) return notify("Choose a PDF first");
-    const total = Math.max(3, Math.min(30, cardsWanted || 12));
-    navigation.navigate("Build", {
-      file,
-      cardsWanted: total,
-      coverage: coverageMode,
-      allocations: allocs.map(a => ({
-        title: a.title,
-        page_start: a.page_start,
-        page_end: a.page_end,
-        cards: Math.max(0, Math.min(30, a.cards || 0)),
-      })),
-    });
+  // ── build ──
+  const validity = validatePlan(plan);
+  function build() {
+    if (!validity.ok) return;
+    navigation.navigate("Build", { file: plan.file, ...buildParams(plan) });
   }
 
-  const pages          = stats?.pages || 0;
-  const sectionsCount  = stats?.per_section_allocation?.length || 0;
-  const coveragePages  = pages ? Math.min(1, (cardsWanted || 0) / pages) : 0;
-  const coverageSecs   = sectionsCount ? Math.min(1, (cardsWanted || 0) / sectionsCount) : 0;
-
-  const recText = useMemo(() => {
-    if (!stats) return null;
-    const rec = stats.recommended_cards;
-    const lo  = stats.suggested_range?.lo;
-    const hi  = stats.suggested_range?.hi;
-    return `Recommended number of flashcards: ${rec}  (Range: ${lo}–${hi})`;
-  }, [stats]);
+  const ready = plan.status === "ready";
+  const hasFile = !!plan.file;
+  const changed = isChangedFromRecommendation(plan);
+  const limits = planLimits(plan);
+  const summary = planSummary(plan);
 
   return (
-    <Screen scroll maxWidth="narrow" center={!file}>
+    <Screen scroll maxWidth="narrow" center={!hasFile}>
       <PageHeader
         eyebrow={<BrandMark showTagline />}
         title="Make flashcards"
-        subtitle="Upload a PDF."
+        subtitle={hasFile ? "Review the structure, then choose how many cards to write." : "Upload a PDF. Its sections and pages are found first, then cards are written for each section."}
       />
 
       {cached && (
         <Surface style={styles.resumeCard}>
-          <MetaLabel>Resume last deck?</MetaLabel>
-          <Text style={styles.resumeSub}>
-            Deck #{cached.deckId}
-            {cached.cardsCount != null ? ` • ${cached.cardsCount} cards` : ""}
+          <MetaLabel>Resume last deck</MetaLabel>
+          <Text style={styles.resumeName} numberOfLines={2}>
+            {cached.name || `Deck #${cached.deckId}`}
+          </Text>
+          <Text style={styles.resumeMeta}>
+            {cached.cardsCount != null ? `${cached.cardsCount} cards · ` : ""}Deck #{cached.deckId}
           </Text>
           <View style={styles.buttonRow}>
-            <Button title="Use cached" size="sm" onPress={resumeCached} />
-            <Button title="Discard" size="sm" variant="secondary" onPress={discardCached} />
+            <Button
+              title="Resume"
+              size="sm"
+              onPress={resumeCached}
+              accessibilityLabel={`Resume ${cached.name || `deck ${cached.deckId}`}`}
+            />
+            <Button title="Discard" size="sm" variant="secondary" onPress={discardCached} accessibilityHint="Forgets the saved deck on this device" />
           </View>
         </Surface>
       )}
 
-      {file ? (
-        <Button
-          title="Choose PDF"
-          size="lg"
-          variant="secondary"
-          onPress={pick}
-          accessibilityHint="Opens a file picker for PDF documents"
-        />
-      ) : (
+      {!hasFile ? (
         <Surface variant="raised" padding="xl">
           <ProductSteps />
           <Button
             title="Choose PDF"
             size="lg"
             onPress={pick}
+            accessibilityLabel="Choose a PDF"
             accessibilityHint="Opens a file picker for PDF documents"
             style={styles.heroBtn}
           />
+          <Text style={styles.heroNote}>PDF only.</Text>
         </Surface>
-      )}
-
-      {file && (
+      ) : (
         <View style={styles.flow}>
-          <Surface variant="source" padding="md">
-            <MetaLabel>Source</MetaLabel>
-            <Text style={styles.filename}>{file.name}</Text>
-          </Surface>
+          <SourceCard file={plan.file} status={plan.status} onReplace={pick} onRemove={remove} />
 
-          {analyzing && (
-            <Surface style={styles.inlineRow}>
+          {plan.status === "analyzing" && (
+            <Surface style={styles.inlineRow} accessibilityRole="progressbar" accessibilityLabel="Analyzing document">
               <ActivityIndicator color={colors.accent} />
-              <Text style={styles.panelText}>Analyzing document…</Text>
-            </Surface>
-          )}
-          {!!err && <Notice tone="error" title="Analysis failed" message={err} />}
-
-          {stats && (
-            <Surface>
-              <View style={styles.statRow}>
-                <View style={styles.stat}>
-                  <MetaLabel>Pages</MetaLabel>
-                  <Text style={styles.statValue}>{stats.pages}</Text>
-                </View>
-                <View style={styles.stat}>
-                  <MetaLabel>Words</MetaLabel>
-                  <Text style={styles.statValue}>{stats.words}</Text>
-                </View>
-              </View>
-              <Text style={styles.rec}>{recText}</Text>
+              <Text style={styles.panelText}>Finding pages, words and sections…</Text>
             </Surface>
           )}
 
-          <View style={styles.coverageRow}>
-            <Text style={styles.fieldLabel}>Coverage:</Text>
-            <ChipGroup label="Coverage">
-              <Chip
-                label="Even per-page"
-                selected={coverageMode === "even"}
-                onPress={() => setCoverage("even")}
+          {plan.status === "error" && plan.error && (
+            <Notice
+              tone="error"
+              title={plan.error.title}
+              message={plan.error.message}
+              action={
+                <>
+                  {plan.error.retryable !== false && <Button title="Try again" size="sm" onPress={retry} />}
+                  <Button title="Choose another PDF" size="sm" variant="secondary" onPress={pick} />
+                </>
+              }
+            >
+              {plan.error.status ? <Text style={styles.errStatus}>Server response: HTTP {plan.error.status}</Text> : null}
+            </Notice>
+          )}
+
+          {ready && (
+            <>
+              <StructureSummary stats={plan.stats} sectionCount={plan.sections.length} />
+
+              <CardCountControl
+                total={plan.total}
+                recommendation={plan.recommendation}
+                sectionCount={plan.sections.length}
+                limits={limits}
+                changed={changed}
+                manual={plan.manual}
+                onChangeTotal={(total) => dispatch({ type: "setTotal", total })}
+                onReset={() => dispatch({ type: "reset" })}
               />
-              <Chip
-                label="Cover sections first"
-                selected={coverageMode === "section"}
-                onPress={() => setCoverage("section")}
-              />
-            </ChipGroup>
-          </View>
 
-          <View>
-            <View style={styles.sliderHeader}>
-              <Text style={styles.fieldLabel}>Cards to generate</Text>
-              <Badge tone="accent" accessibilityLabel={`${cardsWanted} cards`}>{cardsWanted}</Badge>
-            </View>
-            <Slider
-              minimumValue={3}
-              maximumValue={30}
-              step={1}
-              value={cardsWanted}
-              onValueChange={setCardsWanted}
-              minimumTrackTintColor={colors.accent}
-              maximumTrackTintColor={colors.borderStrong}
-              thumbTintColor={colors.accent}
-              accessibilityLabel="Cards to generate"
-            />
-            {stats && (
-              <View style={styles.coverageStats}>
-                <Text style={styles.coverage}>Coverage (pages ≥1 card): {(coveragePages*100).toFixed(0)}%</Text>
-                {sectionsCount > 0 && (
-                  <Text style={styles.coverage}>Coverage (sections ≥1 card): {(coverageSecs*100).toFixed(0)}%</Text>
-                )}
-              </View>
-            )}
-          </View>
+              {plan.sections.length > 0 && (
+                <SectionPlan
+                  sections={plan.sections}
+                  total={plan.total}
+                  limits={limits}
+                  manual={plan.manual}
+                  summary={summary}
+                  onBump={(index, delta) => dispatch({ type: "bumpSection", index, delta })}
+                  onSet={(index, value) => dispatch({ type: "setSectionCards", index, value })}
+                />
+              )}
 
-          {allocs.length > 0 && (
-            <Surface>
-              <View style={styles.planHeader}>
-                <Text style={styles.panelHdr}>Per-section plan (total {cardsWanted}):</Text>
-                <Button title="Reset to recommendation" variant="quiet" size="sm" onPress={resetAllocations} />
-              </View>
-              {allocs.map((a, i) => (
-                <View key={`${a.title}-${i}`} style={[styles.allocRow, i === allocs.length - 1 && styles.allocRowLast]}>
-                  <View style={styles.allocText}>
-                    <Text style={styles.allocTitle}>{a.title}</Text>
-                    <Text style={styles.allocPages}>p.{a.page_start}–{a.page_end}</Text>
-                  </View>
-                  <View style={styles.allocControls}>
-                    <IconButton icon="–" accessibilityLabel={`Fewer cards for ${a.title}`} onPress={() => bump(i, -1)} />
-                    <TextField
-                      style={styles.allocInput}
-                      keyboardType="number-pad"
-                      value={String(a.cards ?? 0)}
-                      onChangeText={(t) => setSectionCount(i, t)}
-                      accessibilityLabel={`Cards for ${a.title}`}
-                    />
-                    <IconButton icon="+" accessibilityLabel={`More cards for ${a.title}`} onPress={() => bump(i, +1)} />
-                  </View>
-                </View>
-              ))}
-            </Surface>
+              {!validity.ok && <Notice tone="warning" message={validity.reason} />}
+            </>
           )}
 
-          <Button title="Upload & Build" size="lg" fullWidth onPress={next} />
+          <Button
+            title={ready ? `Create ${plan.total} ${plan.total === 1 ? "card" : "cards"}` : "Create cards"}
+            size="lg"
+            fullWidth
+            disabled={!validity.ok}
+            onPress={build}
+            accessibilityHint={validity.ok ? "Uploads the PDF and writes the cards" : validity.reason}
+          />
         </View>
       )}
     </Screen>

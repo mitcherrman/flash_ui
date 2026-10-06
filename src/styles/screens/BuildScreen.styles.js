@@ -4,28 +4,21 @@ import { colors, spacing, text } from "../../theme";
 
 export default StyleSheet.create({
   card: { alignItems: "center" },
-  cardTitle: {
-    ...text.bodyStrong,
-    marginTop: spacing.lg,
-    textAlign: "center",
-  },
+  fileName: { ...text.bodyStrong, textAlign: "center", alignSelf: "stretch" },
+  requestLine: { ...text.small, textAlign: "center", marginTop: spacing.xxs },
 
-  progressRow: {
-    marginTop: spacing.lg,
+  glyph: { marginTop: spacing.xl },
+
+  steps: {
     flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
     alignItems: "center",
     gap: spacing.sm,
+    marginTop: spacing.lg,
   },
-  progressDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    borderWidth: 2,
-  },
-  dotIdle: { borderColor: colors.borderStrong, backgroundColor: "transparent" },
-  dotActive: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
-  dotDone: { borderColor: colors.success, backgroundColor: colors.success },
-  progressLabel: { ...text.small, marginRight: spacing.sm },
+  step: { ...text.meta, textTransform: "uppercase" },
+  stepArrow: { ...text.muted },
 
   elapsed: {
     ...text.bodyStrong,
@@ -33,9 +26,17 @@ export default StyleSheet.create({
     fontVariant: ["tabular-nums"],
     marginTop: spacing.md,
   },
-  hint: { ...text.muted, marginTop: spacing.sm, textAlign: "center" },
-  homeBtn: { alignSelf: "center", marginTop: spacing.xl },
+  hint: { ...text.muted, marginTop: spacing.sm, textAlign: "center", maxWidth: 420 },
+  cancelBtn: { alignSelf: "center", marginTop: spacing.xl },
 
-  errorNotice: { alignSelf: "stretch" },
-  btnRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.lg },
+  notice: { alignSelf: "stretch", marginTop: spacing.lg },
+  warningItem: { ...text.small, color: colors.text, marginTop: spacing.xs },
+  errStatus: { ...text.muted, marginTop: spacing.xs },
+  btnRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: spacing.sm,
+    marginTop: spacing.lg,
+  },
 });

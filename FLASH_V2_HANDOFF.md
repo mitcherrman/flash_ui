@@ -1201,3 +1201,214 @@ Conventions for later phases:
 4. Gate any new animation with `useReducedMotion()`.
 5. Keep touch targets at `layout.touchTarget`.
 6. Run `npm test` before committing.
+
+---
+
+## 33. F2 — Source / analyze / build workflow
+
+**Workstream:** `FLASH-V2-F2` (2026-10-06). Frontend only, on branch `flashv2/f2-source-build`, based on `d8a806fa878711bf14c59a2826f2bc2364a4e298` (F1). The backend was read only: the certified `b3cc888acbf2bb493f1033384659c0aadc50c967` (checkout `flash-v2-f05-backend`, unmodified). No deployment, no OpenAI calls, no private documents. `master` untouched (`f60dd52`).
+
+Scope: the real **Source → Structure → Cards** path, from picking a PDF to landing on the Picker. Study screens, TOC, TemplateBar, export and the backend were not touched.
+
+### 33.1 Files
+
+| File | Change |
+|---|---|
+| `src/source/plan.js` (new, pure) | Plan reducer: analysis snapshot, recommendation, allocation, manual edits, reset, validation, build params, page-range wording, formatters, PDF guard |
+| `src/source/api.js` (new, pure) | Endpoint paths, multipart field list, file append, `postMultipart`, typed `RequestError`, human error summaries |
+| `src/source/buildRun.js` (new, pure) | Per-request lifecycle guard (`createRun` / `runRequest`), success handoff (`completeBuild`), durations |
+| `src/components/source/{SourceCard,StructureSummary,CardCountControl,SectionPlan}.js` (new) | Upload building blocks, composed from `src/ui` |
+| `src/Screens/UploadScreen.js`, `src/Screens/BuildScreen.js` + their `styles/screens/*` | Rewritten around the modules above |
+| `tests/plan.test.mjs`, `tests/sourceBuild.test.mjs` (new) | 41 deterministic tests (`node --test`, no new dependencies) |
+
+The pure modules import nothing from React or React Native, so `npm test` drives them directly. The screens only wire them to state and navigation.
+
+### 33.2 Upload workflow
+
+1. **Empty:** brand header, step strip, "Choose PDF" (PDF only). The resume card shows when a last deck is saved.
+2. **Pick:** the picker is still restricted to `application/pdf`. A file that slips through (for example "All files" in a web dialog) is rejected by `isPdfFile` before any upload: "That file isn't a PDF", **0 requests**. The file is kept as a plain `{uri, name, mimeType, size}` descriptor, so the web `File` object no longer travels in navigation params.
+3. **Analyze:** one `POST /analyze/` per pick, abortable. Picking again, pressing Remove, or leaving the screen cancels the in-flight request. A late result from an older pick is ignored (request ids).
+4. **Source card:** filename (wraps, including unbroken names; clamped at 3 lines), size, status badge (Analyzing… / Analyzed / Not analyzed), **Replace PDF**, **Remove**.
+5. **Structure:** pages, words, sections ("None" when the PDF has no outline), with a one-line note on where the sections come from.
+6. **Cards to generate:** your number beside a *Recommended* / *Your choice* badge. Underneath: "Based on the document's N sections · suggested range lo–hi", or "Recommended: N" once changed. A slider sits between labelled −/+ buttons, followed by Reset.
+7. **Section plan** (only when the PDF has an outline): one row per section with title, honest page label, and −, numeric input, +. Under the heading: "N cards across M sections · up to 8 per section", plus either "Every section gets at least one card" or "K sections get no cards".
+8. **Create N cards:** disabled until analysis succeeds and the plan has at least 3 cards. When blocked, a warning `Notice` says why.
+
+Analysis errors are human-readable and keep the Build button disabled. Recovery offers **Try again** (same file, deliberate) and **Choose another PDF**. The HTTP status appears as secondary text; the server's `detail` goes to the console only.
+
+| Case | Title shown |
+|---|---|
+| Unreachable server | "Couldn't reach the flashcard server" |
+| Unreadable / corrupt PDF | "This file couldn't be read as a PDF" |
+| 400 | "The PDF didn't reach the server" |
+| 413 | "This PDF is too large" |
+| Any other failure | "The server couldn't analyze this PDF" |
+
+### 33.3 Recommendation and Reset (verified bug fixed)
+
+- On analysis, `recommendation = { total: recommended_cards, range: suggested_range, cards: per_section_allocation[].cards }` is snapshotted. If the backend's allocation is incoherent (sum ≠ total, or a section > 8), the snapshot is derived with the same rule instead (defensive; not seen in practice).
+- **Reset** restores the snapshot total **and** the per-section allocation, and clears the manual flag. The button is enabled only when something differs from the snapshot. It is a real state transition, not `setCardsWanted(prev => prev)`. Verified live: 11 [7,2,2] → 3 [1,1,1]; manual 20 → 12 ×1 per section; keyboard Enter on the focused button works.
+- Manual choices are discarded **only** when a new document is picked (or Remove / Try again starts a fresh analysis).
+
+### 33.4 Coverage-control decision: path C, removed
+
+The trace found no authoritative behaviour.
+
+- **Frontend:** `coverageMode` only ever went into Build route params.
+  - `45cf1da` once sent `fd.append("coverage", …)`. It was removed in `2839954`, and no frontend code has sent it since.
+  - The "Coverage (pages ≥1 card) %" figure was `cardsWanted / pages`, which is not a real coverage measure.
+- **Backend:** no code on `main`/`b3cc888` reads `coverage`. The only hit is a comment in `templater.py`.
+  - The unmerged `origin/celery-redis` branch accepts a `coverage` form field and passes it into `build_deck_task(coverage=…)`, which never uses it.
+  - `origin/Mogsy` has only the same comment.
+
+Both chips and the derived percentages are therefore **removed**, and `coverage` is no longer put in Build params. Nothing was ever sent to the backend, so the request is unchanged. The honest replacement is the section-plan line "K sections get no cards" / "Every section gets at least one card", computed from the actual allocation.
+
+### 33.5 Allocation behaviour
+
+- **Bounds are the backend's:** total 3–30, 0–8 per section. With sections, the slider maximum is `min(30, 8 × sections)`, so 1 section → 8 and 3 sections → 24, labelled "(max 8 per section)".
+- **Automatic redistribution** (slider or −/+ while the plan is not manual):
+  - `shareAllocation` mirrors `analysis.py` exactly for any total: one card each first, the rest by word share with Python's half-to-even `round`, then normalised round-robin.
+  - `capAllocation` then moves any excess over 8 to the following sections. The sum always equals the total.
+  - At the recommended total, the snapshot is used verbatim.
+  - Seventeen (words, total) cases were produced by **executing the backend's own allocation block** in Python and frozen as test fixtures; the JS mirror matches all of them.
+- **Manual edits** (−/+ or typing):
+  - Values are clamped to 0–8, and further so the deck stays ≤ 30. The total becomes the sum, deterministically.
+  - The plan is marked **Edited**. The slider and total −/+ are disabled, with "The total follows your section edits. Reset to use the slider again."
+  - The slider never silently overwrites manual edits. Editing back to exactly the recommendation clears the manual flag.
+- A manual plan under 3 cards is allowed transiently, but Build is blocked with "Plan at least 3 cards in total".
+- Page ranges are the analysis' own `page_start`/`page_end`, passed through untouched; `null` stays `null`.
+- **Wording** (`formatPageRange`):
+  - "Pages 1–4" / "Page 5";
+  - `page_source: "estimated"` → "About pages 3–4";
+  - missing start → "Page unknown".
+
+  Analysis does not emit `page_source` today; the wording is ready for it.
+
+### 33.6 Build semantics
+
+- **One request per attempt.** Mount = attempt 0. No StrictMode, so no double effect. "Try again" is the only way to make another attempt; it is guarded against a double press (verified: two presses → 1 request). There are no automatic retries.
+- **Working state** is honestly indeterminate. The title is "Creating your deck…". The panel shows:
+  - the filename and "N cards requested · K sections";
+  - a pulsing glyph with `role=progressbar` "Creating your deck" (static under reduced motion);
+  - a static `SOURCE → STRUCTURE → CARDS` caption;
+  - an `m:ss elapsed` timer;
+  - "The server reads your PDF and writes cards for each section in one step, so there is no live progress to show";
+  - **Cancel**.
+
+  There are no fake stages, percentages, or "Uploading…".
+- **Success without warnings:** the storage writes (`saveLastDeck`, `saveTemplate`) are *issued* synchronously, without being awaited, and then `navigation.reset → Picker {deckId, buildMs}` runs.
+  - Previously the writes ran in a `setTimeout` after navigation. That was not a user-visible race: the Picker reads the template only on click and gets `buildMs` from params. Ordering is now deterministic at no cost (on web the localStorage write lands before navigation).
+  - A failed write is logged and never blocks navigation.
+- **Success with warnings** (verified bug: they were a dialog that raced navigation):
+  - Build stays on "Your deck is ready", showing "N cards created · Built in …" and a warning `Notice` listing every backend warning verbatim. The deck is already saved for resume.
+  - **Start studying** goes to the Picker; **Home** goes to Upload.
+  - Warnings are never treated as failure.
+- **Failure:** "The deck wasn't created", with an error `Notice` (`role=alert`, announced) and "Server response: HTTP n". Buttons: **Try again**, **Back to plan** (the plan is preserved), **Home**. The timer stops. The full `RequestError` is logged with `console.error`.
+
+  | Case | Message |
+  |---|---|
+  | Zero cards | "No cards could be written" (neutral: the cause may be the document or the model) |
+  | Unreadable PDF | "This file couldn't be read as a PDF" |
+  | Unreachable server | "No deck was created…" |
+  | Anything else | "The deck couldn't be built" |
+
+- `buildMs` is the server `metrics.total_ms` if one ever appears; otherwise it is measured from the attempt start, as before.
+
+### 33.7 Leaving Build (verified bug fixed)
+
+Cancel, Home, Back, Try-again and the OS back gesture all unmount the attempt's effect. Cleanup does two things:
+
+- `run.cancel()` aborts the `AbortController` (fetch on web and RN 0.79) **and** marks the run inactive;
+- it clears the timer.
+
+`runRequest` drops any late success or failure from an inactive run: no navigation, no storage write, no `setState`. Even on a platform whose fetch ignores the abort, the inactive flag alone holds (tested).
+
+Live proof: with a 1.5 s-per-call stub, Cancel at ~1.0 s produced the following.
+
+- The generate request ended `AbortError` at 1002 ms.
+- The user stayed on Upload with the plan intact.
+- After 14 s: 0 further API calls, and `last_deck_meta` was still the previous deck, with no new `template:*` key.
+- The backend kept working and created that deck server-side. Django logged "Broken pipe" when it tried to answer. This is expected: server-side cancellation is **not** in scope (F5).
+
+### 33.8 Request contract (unchanged, verified in the browser network log)
+
+- `POST {API_BASE}/api/flashcards/analyze/` — multipart: `file` only. Exactly one per pick or retry.
+- `POST {API_BASE}/api/flashcards/generate/` — multipart, in this order:
+  - `file` (web: a `File` with the original name and type; native: `{uri,name,type}`);
+  - `deck_name` (the filename without `.pdf`);
+  - `cards_wanted` (3–30; it equals the plan total, so it is coherent with the allocations the backend sums);
+  - `allocations` (a JSON array of `{title, page_start, page_end, cards}`, sent only when the PDF has sections).
+
+  Exactly one per attempt. No `coverage` or any other new field.
+- Responses consumed:
+  - analyze: `pages`, `words`, `recommended_cards`, `suggested_range`, `per_section_allocation`;
+  - generate: `deck_id`, `cards_created`, `warnings`, `template` (plus `metrics.total_ms` if ever present).
+- `EXPO_PUBLIC_API_BASE` / `src/config.js` are untouched.
+
+### 33.9 Tests and checks
+
+| Check | Result |
+|---|---|
+| `npm ci` | ✅ |
+| `npm test` | ✅ **83/83**: the 42 F1 tests plus 41 F2 tests (backend-allocation fixtures, Reset, redistribution sum = total, manual preservation, clamps, build gating, contract fields, error copy without paths, the leave-build race (abortable and non-abortable fetch, late success and late failure), write-before-navigate ordering, warnings flow, no automatic retry, formatters, PDF guard) |
+| No raw hex outside `src/theme` | ✅ (F1 test) |
+| `expo export --platform web` / `android` / `ios` | ✅ (Android 1135, iOS 1132 modules) |
+| `npx expo-doctor@latest` | ⚠️ 16/18, the same two patch-alignment findings as F0–F1 (F5) |
+
+### 33.10 Live verification
+
+Setup:
+
+- the exported web bundle served statically;
+- the real `b3cc888` backend (a `git archive` in scratch, Python 3.14 venv);
+- a local OpenAI-compatible stub behind `OPENAI_BASE_URL` that reuses the backend's own `flashcards/tests/fakes.FakeOpenAI`, with runtime delay/fail knobs;
+- synthetic PDFs only: uneven TOC 1–4/5/6, no outline, a 12-section PDF with long and unbroken titles and a very long unbroken filename, a corrupt PDF, and a `.txt`.
+
+Verified:
+
+- pick → one analyze;
+- recommendation 3 / range 3–4 / [1,1,1] with real ranges;
+- total +3 → 6 [4,1,1] (the backend rule);
+- section edit → Edited + locked slider;
+- Reset;
+- the 8-per-section cap;
+- the no-outline total-only plan and its Reset;
+- generate with Photosynthesis = 6 → exact fields, the warning shown in-page, the deck saved, Start studying → Picker `Deck #1`;
+- the template opened from cache with 0 API calls (`title = "uneven-toc"`, ranges `toc`);
+- the leave-build race (§33.7);
+- the generate error → Try again ×2 → one request → Picker;
+- the analyze errors: non-PDF (0 requests), corrupt PDF, network failure → Try again;
+- the resume card (document name, card count) → Resume → Picker;
+- slider `aria-valuemin/max/now/valuetext` and `aria-disabled` when locked;
+- every button, input and slider at least 44 px.
+
+| Viewport | Upload (12 sections) | Build working | Build error |
+|---|---|---|---|
+| 390×844 | ✅ `scrollWidth == innerWidth`, 0 elements past the edge | ✅ | ✅ |
+| 844×390 | ✅ | ✅ (scrolls vertically; Cancel reachable) | ✅ |
+| 768×1024 | ✅ | ✅ | ✅ |
+| 1280×800 | ✅ | ✅ | ✅ |
+| 1440×900 | ✅ (640 px column) | ✅ | ✅ |
+
+**Not verified:** native devices (no simulator here; only native bundling), and emulated `prefers-reduced-motion` on the Build pulse. The reduced-motion code path is unchanged from F1 apart from also stopping the pulse once Build leaves the working state.
+
+### 33.11 Notes and remaining debt
+
+- **On web the stack keeps Upload mounted under Build** (native-stack behaviour), which is why Back/Cancel returns to an intact plan.
+- **expo-document-picker on web:**
+  - it returns a data-URL `uri` (base64 read of the whole file), which is pre-existing; very large PDFs pay that cost twice (analyze and generate);
+  - a cancelled web pick leaves its hidden `<input>` in the DOM (library behaviour).
+- **F3** (compatible; nothing in F3 files changed):
+  - Picker still says "Deck #N" and "built in 0:00" for sub-second builds (its own formatter);
+  - stale/missing-deck states;
+  - the template modal header;
+  - the remaining study-screen debt from §32.13.
+
+  The Picker receives the same `{deckId, buildMs}` params, and the cache keys/shape are unchanged (no `VERSION` bump).
+- **F4:**
+  - the web slider is a non-focusable View from `@react-native-community/slider` (no arrow-key support); the labelled −/+ buttons are the keyboard path. A native `<input type=range>` on web would be an F4 option;
+  - responsive two-column Upload on desktop is not attempted.
+- **F5:**
+  - server-side cancellation of abandoned generates;
+  - the `catch-up "Mixed topics"` fill means `cards_created` can exceed a section's planned count while warnings still list shortfalls (the warnings are the backend's, shown verbatim);
+  - Expo patch alignment.

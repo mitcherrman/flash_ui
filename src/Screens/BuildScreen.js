@@ -1,45 +1,129 @@
 // src/Screens/BuildScreen.js
-import React, { useEffect, useState, useRef } from "react";
-import {
-  View,
-  Text,
-  Platform,
-} from "react-native";
-import { Animated } from "react-native";
+// One generate request per attempt. The API is a single request with no
+// server-side progress, so the working state is honestly indeterminate:
+// filename, requested size, elapsed time — no stages or percentages.
+//
+// Leaving (Cancel / Back / Home / OS back) unmounts the screen, which aborts
+// the request and deactivates the run: a late response can no longer
+// navigate, write storage or set state (src/source/buildRun.js).
+import React, { useEffect, useRef, useState } from "react";
+import { Animated, Platform, Text, View } from "react-native";
 import { API_BASE } from "../config";
 import { saveLastDeck, saveTemplate } from "../utils/cache";
 import {
+  GENERATE_PATH, appendFile, deckNameFor, describeGenerateError, generateFields, postMultipart,
+} from "../source/api";
+import { completeBuild, createRun, formatDuration, resolveBuildMs, runRequest } from "../source/buildRun";
+import {
   BrandMark, Button, CardStackGlyph, Notice, PageHeader, Screen, Surface,
-  USE_NATIVE_DRIVER, notify, useReducedMotion,
+  USE_NATIVE_DRIVER, useReducedMotion,
 } from "../ui";
+import { breakWord } from "../components/source/SourceCard";
 import styles from "../styles/screens/BuildScreen.styles";
 
-function formatMs(ms) {
+const IS_WEB = Platform.OS === "web";
+
+function formatElapsed(ms) {
   const s = Math.max(0, Math.floor(ms / 1000));
   const m = Math.floor(s / 60);
   const ss = String(s % 60).padStart(2, "0");
   return `${m}:${ss}`;
 }
 
+// Static description of what the single request does. Not live progress.
+const STEPS = ["Source", "Structure", "Cards"];
+
 export default function BuildScreen({ route, navigation }) {
   const { file, cardsWanted = 12, allocations = [] } = route.params || {};
+  const fileName = file?.name ?? "document.pdf";
+  const deckName = deckNameFor(fileName);
+  const plannedSections = allocations.filter((a) => a.cards > 0).length;
 
-  const [phase, setPhase] = useState("upload");
-  const [errMsg, setErrMsg] = useState("");
-  const [filename, setFilename] = useState(file?.name ?? "document.pdf");
-
+  // phase: working | review (success with warnings) | error
+  const [view, setView] = useState({ phase: "working" });
+  const [attempt, setAttempt] = useState(0);
   const [elapsedMs, setElapsedMs] = useState(0);
-  const t0Ref = useRef(0);
-  const timerRef = useRef(null);
 
-  const onHome = () => {
-    navigation.reset({ index: 0, routes: [{ name: "Upload" }] });
+  const goHome = () => navigation.reset({ index: 0, routes: [{ name: "Upload" }] });
+  const goToPicker = (params) => navigation.reset({ index: 0, routes: [{ name: "Picker", params }] });
+  const backToPlan = () => (navigation.canGoBack() ? navigation.goBack() : goHome());
+
+  // One request per attempt (a mount is attempt 0; "Try again" is deliberate).
+  useEffect(() => {
+    const run = createRun();
+    const t0 = Date.now();
+    setElapsedMs(0);
+    let timer = setInterval(() => {
+      if (run.active) setElapsedMs(Date.now() - t0);
+    }, 250);
+    const stopTimer = () => {
+      clearInterval(timer);
+      timer = null;
+    };
+
+    runRequest({
+      run,
+      request: async (signal) => {
+        const formData = await appendFile(new FormData(), file, {
+          isWeb: IS_WEB,
+          fetchImpl: fetch,
+          signal,
+          FileImpl: IS_WEB ? File : undefined,
+        });
+        for (const [k, v] of generateFields({ fileName, cardsWanted, allocations })) formData.append(k, v);
+        return postMultipart({ fetchImpl: fetch, url: `${API_BASE}${GENERATE_PATH}`, formData, signal });
+      },
+      onSuccess: (json) => {
+        stopTimer();
+        const buildMs = resolveBuildMs(json, Date.now() - t0);
+        setElapsedMs(buildMs);
+        const out = completeBuild({
+          json,
+          deckName,
+          buildMs,
+          storage: { saveLastDeck, saveTemplate },
+          goToPicker,
+        });
+        if (!out.navigated) {
+          setView({
+            phase: "review",
+            warnings: out.warnings,
+            pickerParams: out.pickerParams,
+            created: json?.cards_created ?? null,
+          });
+        }
+      },
+      onError: (err) => {
+        stopTimer();
+        console.error("[BuildScreen] generate failed", err);
+        setView({ phase: "error", error: describeGenerateError(err) });
+      },
+    });
+
+    return () => {
+      run.cancel();
+      stopTimer();
+    };
+  }, [attempt]);
+
+  // Guard against a double press creating two attempts.
+  const retrying = useRef(false);
+  useEffect(() => {
+    retrying.current = false;
+  }, [attempt]);
+  const retry = () => {
+    if (view.phase !== "error" || retrying.current) return;
+    retrying.current = true;
+    setView({ phase: "working" });
+    setAttempt((a) => a + 1);
   };
 
+  // Pulsing glyph while working (static under reduced motion).
   const reduceMotion = useReducedMotion();
   const pulse = useRef(new Animated.Value(0)).current;
+  const working = view.phase === "working";
   useEffect(() => {
-    if (reduceMotion) {
+    if (reduceMotion || !working) {
       pulse.setValue(1);
       return undefined;
     }
@@ -51,143 +135,102 @@ export default function BuildScreen({ route, navigation }) {
     );
     loop.start();
     return () => loop.stop();
-  }, [reduceMotion]);
+  }, [reduceMotion, working]);
   const scale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.12] });
   const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] });
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const fd = new FormData();
-        const name = file?.name ?? "document.pdf";
-        const mime = file?.mimeType ?? "application/pdf";
-        setFilename(name);
+  const requestLine =
+    `${cardsWanted} ${cardsWanted === 1 ? "card" : "cards"} requested` +
+    (plannedSections ? ` · ${plannedSections} ${plannedSections === 1 ? "section" : "sections"}` : "");
 
-        if (Platform.OS === "web") {
-          const blob = await fetch(file.uri).then((r) => r.blob());
-          fd.append("file", new File([blob], name, { type: mime }));
-        } else {
-          fd.append("file", { uri: file.uri, name, type: mime });
-        }
-
-        fd.append("deck_name", name.replace(/\.pdf$/i, ""));
-        fd.append("cards_wanted", String(cardsWanted || 12));
-        if (allocations?.length) {
-          fd.append("allocations", JSON.stringify(allocations));
-        }
-
-        t0Ref.current = Date.now();
-        clearInterval(timerRef.current);
-        timerRef.current = setInterval(() => {
-          setElapsedMs(Date.now() - t0Ref.current);
-        }, 250);
-
-        setPhase("upload");
-        const url = `${API_BASE}/api/flashcards/generate/`;
-        const res = await fetch(url, { method: "POST", body: fd });
-
-        if (!res.ok) {
-          let details = "";
-          try {
-            const j = await res.json();
-            details = j?.detail || JSON.stringify(j);
-          } catch {
-            details = await res.text();
-          }
-          throw new Error(`HTTP ${res.status} – ${String(details).slice(0, 400)}`);
-        }
-
-        setPhase("build");
-        const json = await res.json();
-
-        const buildMsMeasured = Date.now() - t0Ref.current;
-        clearInterval(timerRef.current);
-
-        if (Array.isArray(json.warnings) && json.warnings.length) {
-          notify("Some sections had less material", json.warnings.join("\n\n"), [{ text: "OK" }]);
-        }
-
-        const serverTotal = json?.metrics?.total_ms;
-        const buildMs = typeof serverTotal === "number" ? serverTotal : buildMsMeasured;
-
-        // Go to picker immediately so the UI isn’t blocked by storage writes
-        navigation.reset({
-          index: 0,
-          routes: [{ name: "Picker", params: { deckId: json.deck_id, buildMs } }],
-        });
-
-        // Save meta + template in the background
-        setTimeout(() => {
-          saveLastDeck({
-            deckId: json.deck_id,
-            name: name.replace(/\.pdf$/i, ""),
-            cardsCount: json.cards_created ?? null,
-            buildMs,
-            metrics: json?.metrics ?? null,
-          }).catch(() => {});
-          if (json?.template) {
-            saveTemplate(json.deck_id, json.template).catch(() => {});
-          }
-        }, 0);
-      } catch (err) {
-        clearInterval(timerRef.current);
-        setErrMsg(err?.message ?? String(err));
-        setPhase("error");
-      }
-    })();
-
-    return () => clearInterval(timerRef.current);
-  }, []);
-
-  const headline =
-    phase === "error"
-      ? "Something went wrong"
-      : phase === "upload"
-      ? "Uploading your PDF…"
-      : "Building your deck…";
+  const title =
+    view.phase === "error"
+      ? "The deck wasn't created"
+      : view.phase === "review"
+      ? "Your deck is ready"
+      : "Creating your deck…";
 
   return (
-    <Screen center maxWidth="narrow">
-      <PageHeader
-        align="center"
-        eyebrow={<BrandMark />}
-        title="Flashcard Builder"
-        subtitle={headline}
-      />
+    <Screen scroll center maxWidth="narrow">
+      <PageHeader align="center" eyebrow={<BrandMark />} title={title} />
 
       <Surface variant="raised" padding="xl" style={styles.card}>
-        {phase !== "error" ? (
+        <Text style={[styles.fileName, breakWord]} numberOfLines={3}>
+          {fileName}
+        </Text>
+        <Text style={styles.requestLine}>{requestLine}</Text>
+
+        {view.phase === "working" && (
           <>
             <Animated.View
-              style={{ transform: [{ scale }], opacity }}
+              style={[styles.glyph, { transform: [{ scale }], opacity }]}
               accessibilityRole="progressbar"
-              accessibilityLabel={headline}
+              accessibilityLabel="Creating your deck"
+              accessibilityState={{ busy: true }}
             >
               <CardStackGlyph size={56} />
             </Animated.View>
-            <Text style={styles.cardTitle} numberOfLines={2}>{filename}</Text>
 
-            <View style={styles.progressRow}>
-              <View style={[styles.progressDot, phase === "upload" ? styles.dotActive : styles.dotDone]} />
-              <Text style={styles.progressLabel}>Upload</Text>
-              <View style={[styles.progressDot, phase === "upload" ? styles.dotIdle : styles.dotActive]} />
-              <Text style={styles.progressLabel}>Generate</Text>
+            <View style={styles.steps} accessibilityLabel="Source, structure, cards: one request writes the cards">
+              {STEPS.map((s, i) => (
+                <React.Fragment key={s}>
+                  {i > 0 && <Text style={styles.stepArrow}>→</Text>}
+                  <Text style={styles.step}>{s}</Text>
+                </React.Fragment>
+              ))}
             </View>
 
-            <Text style={styles.elapsed}>
-              Elapsed: {formatMs(elapsedMs)}
+            <Text style={styles.elapsed} accessibilityLabel={`Elapsed ${formatElapsed(elapsedMs)}`}>
+              {formatElapsed(elapsedMs)} elapsed
+            </Text>
+            <Text style={styles.hint}>
+              The server reads your PDF and writes cards for each section in one step, so there is no
+              live progress to show. Larger documents and more cards take longer.
             </Text>
 
-            <Text style={styles.hint}>This can take a moment for larger PDFs.</Text>
-
-            <Button title="Home" variant="secondary" onPress={onHome} style={styles.homeBtn} />
+            <Button
+              title="Cancel"
+              variant="secondary"
+              onPress={backToPlan}
+              style={styles.cancelBtn}
+              accessibilityHint="Stops waiting and returns to your plan"
+            />
           </>
-        ) : (
+        )}
+
+        {view.phase === "review" && (
           <>
-            <Notice tone="error" message={errMsg} style={styles.errorNotice} />
+            <Notice
+              tone="success"
+              title={view.created != null ? `${view.created} cards created` : "Deck created"}
+              message={`Built in ${formatDuration(elapsedMs)}.`}
+              style={styles.notice}
+            />
+            <Notice tone="warning" title="Some sections had less material" style={styles.notice}>
+              {view.warnings.map((w, i) => (
+                <Text key={i} style={styles.warningItem}>
+                  • {w}
+                </Text>
+              ))}
+            </Notice>
             <View style={styles.btnRow}>
-              <Button title="Back" onPress={() => navigation.goBack()} />
-              <Button title="Home" variant="secondary" onPress={onHome} />
+              <Button title="Start studying" onPress={() => goToPicker(view.pickerParams)} />
+              <Button title="Home" variant="secondary" onPress={goHome} />
+            </View>
+          </>
+        )}
+
+        {view.phase === "error" && (
+          <>
+            <Notice tone="error" title={view.error.title} message={view.error.message} style={styles.notice}>
+              {view.error.status ? (
+                <Text style={styles.errStatus}>Server response: HTTP {view.error.status}</Text>
+              ) : null}
+            </Notice>
+            <View style={styles.btnRow}>
+              <Button title="Try again" onPress={retry} />
+              <Button title="Back to plan" variant="secondary" onPress={backToPlan} />
+              <Button title="Home" variant="quiet" onPress={goHome} />
             </View>
           </>
         )}
