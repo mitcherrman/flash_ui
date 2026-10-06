@@ -1,37 +1,16 @@
 // src/config.js
-// Central place for any values both web & native need.
-
-// export const API_BASE = "http://127.0.0.1:8000/api/flashcards";
-
-// If you run on a real phone replace 127.0.0.1 with your computer’s
-// LAN IP, e.g. 192.168.0.42, or use an env‑style switch:
-//
-// export const API_BASE =
-//   process.env.EXPO_PUBLIC_API ?? "http://192.168.0.42:8000/api/flashcards";
-
-// src/config.js
-// import { Platform } from "react-native";
-
-/** Change this to your computer’s LAN IP when you test on a phone! */
-// const LOCAL_LAN_IP = "10.0.0.139:8081";   // <‑‑ replace
-
-//export const API_BASE = Platform.select({
- // web    : "http://127.0.0.1:8000/api/flashcards",
-  //default: `http://${LOCAL_LAN_IP}/api/flashcards`,
-// });
-
-
 // Single source of truth for the backend URL.
-// Change the IP when you switch networks.
-
-
-
-// export const API_BASE = "http://10.0.0.139:8000";
-
-// src/config.js
+//
+// Override with EXPO_PUBLIC_API_BASE (Expo inlines EXPO_PUBLIC_* at bundle
+// time from the shell or a .env / .env.local file; see .env.example).
+// It must be the server origin only, e.g. "http://192.168.0.42:8000" —
+// screens append "/api/flashcards/...".
+//
+// Unset (the default for a fresh clone):
+//   web    → http://127.0.0.1:8000
+//   native → http://<LAN IP of the Metro/Expo dev host>:8000
 import { Platform, NativeModules } from "react-native";
 import Constants from "expo-constants";
-import { WEB_API_BASE } from "./env";
 
 function guessHostFromScriptURL() {
   // e.g. "http://10.0.0.139:8081/index.bundle?..."
@@ -54,7 +33,12 @@ function getLanHost() {
   return guessHostFromScriptURL() || guessHostFromConstants() || "127.0.0.1";
 }
 
-export const API_BASE = Platform.select({
-  web: WEB_API_BASE ?? "http://127.0.0.1:8000",
-  default: `http://${getLanHost()}:8000`,
-});
+// Must stay a literal `process.env.EXPO_PUBLIC_…` access so Expo can inline it.
+const OVERRIDE = (process.env.EXPO_PUBLIC_API_BASE || "").trim().replace(/\/+$/, "");
+
+export const API_BASE =
+  OVERRIDE ||
+  Platform.select({
+    web: "http://127.0.0.1:8000",
+    default: `http://${getLanHost()}:8000`,
+  });
