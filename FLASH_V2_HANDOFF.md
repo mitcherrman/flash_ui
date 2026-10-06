@@ -4,6 +4,8 @@
 **Audit date:** 2026-10-06
 **Frontend branch:** `flashv2/f0-baseline` (this file is the only change)
 
+> **F0.5 update:** blockers B1–B4 are fixed on `flashv2/f05-stabilization` in both repos. See **§31 F0.5 Addendum** at the end. Where §1–§30 describe F0.5-fixed behaviour (page ranges, `ordinal = 0`, `src/env.js`, `tiktoken`, `.chunks.pkl`, temp paths in errors, template title), §31 supersedes them.
+
 Evidence labels used throughout:
 
 - **VERIFIED**: read in the current source *and/or* observed running locally (curl against the real Django app, or the real Expo web build driven in a headless browser).
@@ -817,3 +819,164 @@ Knowledge graphs or ontology discovery; generated game modes; comparison/swipe e
 12. **Native verification:** who provides the iOS/Android test devices or simulators, and is native polish a hard requirement for "done"?
 13. **Public backend:** will the backend ever be publicly hosted? If not, F5 shrinks to config hygiene and the portfolio stays fixture-only.
 14. **Feedback counters:** leave `/feedback/` unused (recommended), or wire MC endless results to it?
+
+---
+
+## 31. F0.5 Addendum — verified stabilization
+
+**Workstream:** `FLASH-V2-F0.5` (2026-10-06). Scope: B1–B4 from §22, plus the template-title, `.chunks.pkl` and temp-path items, because each was a small, low-risk lifecycle fix. No visual changes, no new features, no endpoint or request changes. No deployment, no OpenAI calls, no private documents. Default branches untouched (frontend `master` = `f60dd52`, backend `main` = `18a6928`).
+
+### 31.1 SHAs
+
+| Repo | Branch | Base | F0.5 commit(s) |
+|---|---|---|---|
+| Frontend `mitcherrman/flash_ui` | `flashv2/f05-stabilization` | `78b289edf651e98100fa83ae71d7b490e44fd69b` (F0) | `a9e1d82bce589820508b90ae6a071772f703d586` (config fix), then the commit adding this addendum (its direct child) |
+| Backend `mitcherrman/flashcard_django` | `flashv2/f05-stabilization` | `18a69289c7d34869fa6a141ec10210e3cc3835d0` (`main`) | `9575ae04e48c54f60d679dbe97b984ab9eb2fcc7` |
+
+Frontend files: `src/config.js`, `.env.example` (new), `.gitignore`, this file. Backend files: `requirements.txt`, `flashcards/ai/driver.py`, `flashcards/ai/flashcard_gen.py`, `flashcards/ai/pipeline/templater.py`, `flashcards/ai/pipeline/core.py`, `flashcards/views.py`, `flashcards/tests/{__init__,fakes,test_pipeline}.py` (replacing the empty `flashcards/tests.py`).
+
+### 31.2 Fixes
+
+| ID | Before (reproduced on the base SHAs) | After |
+|---|---|---|
+| B1 fresh clone | `src/config.js` imported the gitignored `src/env.js`, so the web export failed | `API_BASE` reads `EXPO_PUBLIC_API_BASE`; `src/env.js` is no longer read. `git archive` of `a9e1d82` → `npm ci` + `expo export` for web/android/ios all exit 0 |
+| B2 install | `tiktoken==0.7.0` has no cp314 wheel (needs Rust) | Pin removed. Import graph re-verified: the only importer is `ai/chunker.py`, which nothing imports. Clean Python 3.14.7 venv: `pip install -r requirements.txt` exit 0, `pip check` clean |
+| B3 page/section | Templater set `page_end=None`; `_template_from_sections` then replaced **both** ends with an even split. Also, `_merge_sections` silently dropped page metadata on every new section. TOC 1–4 / 5 / 6 became 1–2 / 3–4 / 5–6. "Photosynthesis" got no page text, and a page-2 fact was labelled p.1 | Real ranges kept (1–4 / 5–5 / 6–6). Each section's model input contains only its own pages, asserted against the fake model's request log. Card pages are grounded (§31.4) |
+| B4 ordinal | `Card.ordinal` always 0 | Dense 1..N in document order, equal to `toc.ordinal` and the `hand?order=doc` position (§31.5) |
+| Template title | `template.title` = server temp-file stem (e.g. `tmpgy0tbwcp`), also sent to the model as the "document title hint" | `template.title` = `deck_name` (new optional `title` kwarg on `cards_from_document`) |
+| `.chunks.pkl` leak (S8) | Written next to the temp upload on every generate and never removed (never read either) | `generate_deck`'s `finally` unlinks it alongside the upload. Tested: the temp dir is empty after a generate, on both success and failure paths |
+| Temp-path leak (S7, parse errors) | `{"detail": "analyze failed: Failed to open file 'C:\\…\\Temp\\tmpXXXX.pdf'."}` | The temp path is replaced by the upload's own name: `"… Failed to open file 'broken.pdf'."` (analyze and generate). The full exception and path are still logged server-side |
+
+### 31.3 Config behaviour (frontend)
+
+- **Variable:** `EXPO_PUBLIC_API_BASE`, the server origin only (e.g. `http://192.168.0.42:8000`; a trailing `/` is stripped). Screens still append `/api/flashcards/...`.
+- **Source:** Expo SDK 53 inlines `process.env.EXPO_PUBLIC_*` at bundle time, from the shell or from `.env` / `.env.local`. `.env*.local` is gitignored. `.env.example` documents the variable. Values end up in the JS bundle, so they are **public**: never put a secret there.
+- **When set:** applies to **web and native**. For LAN phone testing, leave it unset or use the LAN IP, because a `127.0.0.1` value would point the phone at itself. This differs slightly from the old `src/env.js` `WEB_API_BASE`, which was web-only.
+- **When unset (fresh clone):** the defaults are unchanged. Web uses `http://127.0.0.1:8000` (verified in the exported bundle). Native uses `http://<LAN host of the Metro/Expo dev server>:8000`.
+- **Caveat (verified):** Metro caches transforms. After changing the value, run `expo start -c` / `expo export --clear`, or the old value stays in the bundle.
+- A leftover local `src/env.js` is harmless; it stays gitignored.
+
+### 31.4 Section / page policy (backend)
+
+1. **Analysis ranges are authoritative.** `analyze_document` is unchanged; TOC section `page_start`/`page_end` flow through `run_extraction`, which now returns `(text, page_start, title|None, page_end)`. `page_end` is appended last so positional readers keep working.
+2. **Template sections** keep the range of the chunk they were generated from. Each section and `toc` entry gains an **additive** `page_source` field:
+   - `"toc"`: the PDF outline range.
+   - `"page"`: a no-TOC page chunk (one page), or a one-page document.
+   - `"estimated"`: the even split. It is used **only** when no structural/page metadata exists (in practice: TOC-aware extraction failed on a multi-page document).
+3. **Merging** sections with the same title, which still happens, widens the range only across contiguous or overlapping pages. Otherwise the first range is kept, so duplicate titles never span other sections' pages.
+4. **Generation text** for a section is its own TOC chunk, matched by title within range. If there isn't one, it is the chunks lying wholly inside the range. Nested TOC entries that share a start page no longer pull in each other's later pages. `estimated` sections get **no** page slice, only their template seed lines, and no `PAGE:` hint.
+5. **Card `section`** = the template section whose job produced the card. The model's echo is not used. This also makes the existing per-section warnings match exactly.
+6. **Card `page`:**
+   - The page inside the section's real range whose text contains the card's excerpt verbatim. The check uses the whole excerpt, or its first or last 8 words, normalised for case, punctuation and whitespace.
+   - Otherwise, the section's first page.
+   - With no real range, i.e. `estimated` or the global "Mixed topics" catch-up: the excerpt may be located anywhere in the document; otherwise `page = null`. There is **no more fabricated `page=1`**.
+   - Limits: paraphrased excerpts fall back to the section start; text is grounded per page, not per line.
+7. **Unchanged budgets:** section chunks are still trimmed to `max(2000, max_tokens×6)` chars, and section input is still capped at 24,000 chars.
+
+### 31.5 Ordinal policy
+
+- `Card.ordinal` = the 1-based position in the document order already used by `hand?order=doc` and `toc`: page ascending, unknown (`null`) pages last, then insertion order.
+- Before `bulk_create`, cards are stably sorted by `(page is null, page)`. Ties keep pipeline (section) order, and ids are assigned in the same order.
+- For new decks, `card.ordinal == toc.ordinal == hand index + 1` (tested).
+- Ordering semantics are unchanged: `hand`/`toc` still sort by page/id, not by `ordinal`.
+- Decks created before F0.5 keep `ordinal = 0`; there is no backfill migration.
+- Side effect: "Mixed topics" catch-up cards now have `page = null`, so they sort **last** instead of first.
+
+### 31.6 Tests and checks
+
+**Backend suite:** `flashcards/tests/test_pipeline.py`, 15 tests, about 0.3 s, deterministic over 3 consecutive runs.
+
+- Synthetic PDFs are built in memory with PyMuPDF. Every page carries traceable `Fact P<page>-<n>` lines, so page provenance can be checked.
+- `FakeOpenAI` is patched in at both client seams (`templater.OpenAI`, `flashcard_gen.CLIENT`). `httpx.Client.send` is patched to fail any real HTTP call.
+- The database is Django's test SQLite.
+
+Coverage:
+
+- analysis keeps real TOC ranges; recommendation/range/allocation (3 / 3–4 / sum 3); no-TOC → empty plan;
+- template keeps 1–4/5/6 with `page_source="toc"`; `template.title` = deck name;
+- template and card model inputs never contain neighbouring pages (uneven TOC and nested same-start-page TOC);
+- card pages equal the fact's real page and fall inside the section range (Cells 1–4 → pages {1, 2});
+- no-TOC sections use their own page (1/2/3, `"page"`); adjacent same-title pages merge to 1–2;
+- `estimated` only when extraction fails, with no page text, no `PAGE:` hint and `page = null`;
+- ordinals dense 1..N and equal to toc/hand; catch-up cards `page = null` and last;
+- limits the frontend relies on: `cards_wanted` 1→3, 99→30, "abc"→12; per-section cap 8 (20 → planned 8, created 8, requested 10); response keys unchanged;
+- no temp files left after generate; parse errors expose no temp path.
+
+**Run** (the settings still require `OPENAI_API_KEY`, but any placeholder works and it is never used):
+
+```bash
+OPENAI_API_KEY=unused-test-key python manage.py test flashcards
+```
+
+On Python 3.14 the suite patches out Django's `mail_admins` handler (see §31.7, item 1).
+
+| Check (all on Python 3.14.7 / Node 24.19.0) | Result |
+|---|---|
+| BE clean clone (`git archive 9575ae0`) → new venv → `pip install -r requirements.txt` | ✅ exit 0; `tiktoken` not installed; `pip check` clean |
+| BE `manage.py check` | ✅ no issues |
+| BE `makemigrations --check --dry-run` | ✅ no changes (no model changes in F0.5) |
+| BE `manage.py test flashcards` (clean clone) | ✅ 15/15 OK. On the base pipeline the same suite gave 8 failures + 3 errors (before/after evidence) |
+| BE import every module | ✅ all active modules; ❌ only the dead `ai.chunker` (tiktoken) and `ai.prompt_cards` (genanki), as in F0 |
+| BE synthetic E2E: real `runserver`, real OpenAI SDK → local `/v1/chat/completions` stub via `OPENAI_BASE_URL` (scratch only) | ✅ analyze 6 pages / rec 3 / ranges 1–4,5–5,6–6. Generate 10/10, no warnings, `title="uneven"`, sections `toc` 1–4/5–5/6–6. Hand: ordinals 1..10, pages 1,1,1,2,2,2,5,5,6,6, matching the excerpt pages. TOC equals hand. 7 model calls (3 template + 4 card), each with only its own section's pages. 0 `.chunks.pkl` in `%TEMP%`. Broken PDF → `'broken.pdf'` in `detail` |
+| FE clean clone (`git archive a9e1d82`, no `src/env.js`) → `npm ci` | ✅ 711 packages |
+| FE `expo export --platform web` | ✅ exit 0; bundle has `API_BASE = "" ‖ "http://127.0.0.1:8000"` |
+| FE `EXPO_PUBLIC_API_BASE=http://10.9.8.7:8000/ expo export --platform web --clear` | ✅ value inlined and the trailing slash stripped at runtime |
+| FE `expo export --platform android` / `ios` | ✅ exit 0 (native bundling) |
+| FE `npx expo-doctor@latest` | ⚠️ 16/18, the **same** two patch-alignment findings as F0 (`@expo/metro-config`, `expo`, `react-native`, `@expo/metro-runtime`, slider). Deferred (owner decision 11 / F5) |
+
+The frontend still has no lint, test or typecheck scripts (unchanged from F0).
+
+### 31.7 Deferred (deliberately not fixed in F0.5)
+
+**New findings:**
+
+1. **Django 5.0.4 is not Python-3.14 compatible.** With `DEBUG=False`, any 5xx triggers the `mail_admins` handler, whose traceback rendering crashes in `Context.__copy__`. `DEBUG=True` (the current default) is unaffected. **F5:** standardise on Python ≤3.13, or move to Django ≥5.2.8 (5.2 LTS), before any `DEBUG=False` deployment.
+2. `manage.py check`/`test` still need an `OPENAI_API_KEY` env var (S14), so tests document a placeholder. **F5** (`settings.py`).
+3. `_public_error` only rewrites the upload's own temp path; other exception text is still returned verbatim (S7 remainder). **F5.**
+4. Expo patch alignment (5 packages) remains. **F5**, or the owner's call.
+5. Pipeline limits that remain, in **F5**:
+   - nested TOC levels are still flattened into sibling sections (analysis unchanged);
+   - duplicate TOC titles still merge into one section at the first range;
+   - TOC chunks are trimmed to 3,000 chars;
+   - page grounding needs verbatim excerpts;
+   - `hand?start_ordinal` is still unimplemented;
+   - pre-F0.5 decks have `ordinal = 0`.
+6. Dead modules (`ai/chunker.py`, `ai/ingest.py`, `ai/prompt_cards.py`, `inspect.py`) and unused requirements (Pillow, pytesseract, python-docx) are kept. **F5** cleanup.
+
+**Carried over from F0, unchanged:**
+
+- web `Alert.alert` no-op;
+- Reset to recommendation;
+- inert coverage chips;
+- Build stuck on "Uploading…";
+- navigation after leaving a build;
+- MC double-advance;
+- TOC push-stack growth;
+- duplicate Template modals;
+- landscape layout;
+- stale resume state;
+- Game 1 placeholder;
+- duplex print ordering;
+- visual design;
+- the `/feedback/` permission mismatch;
+- public API security / throttling;
+- sequential deck IDs;
+- upload limits;
+- hard-coded `SECRET_KEY`;
+- CORS / `ALLOWED_HOSTS`;
+- production DB;
+- deployment.
+
+### 31.8 Compatibility notes for F1–F6
+
+- **API contract:** endpoints, request fields and successful response shapes are unchanged. Additions are additive only: `template.sections[].page_source` and `template.toc[].page_source`. The frontend ignores both today; F2/F3 may use `page_source` to show "approximate" honestly.
+- **Value changes clients may notice:**
+  - `template.title` is the deck name;
+  - card `page` values are now correct;
+  - `page` can be `null` for "Mixed topics" or estimated cards (all screens already handle `null`);
+  - catch-up cards sort last;
+  - card `ordinal` is meaningful (1..N) for new decks;
+  - card `section` always equals a template section title (or "Mixed topics").
+- **F1–F4 (frontend):** configure the API with `EXPO_PUBLIC_API_BASE` / `.env.local`; never reintroduce a required untracked module. The §26 global criterion (`npm ci && expo export` on a fresh clone) now holds.
+- **F5:** extend `flashcards/tests/` rather than starting over. `FakeOpenAI` plus `make_pdf` is the reusable seam, and the scratch HTTP stub pattern (`OPENAI_BASE_URL`) works with the real SDK. Remaining F5 acceptance items from §26: `check --deploy`, throttling, upload limits, path-free errors in general, env-driven settings, plus item 1 above.
+- **F6:** fixture page numbers can now come from a real generate run against `make_pdf`-style synthetic documents. The fixture must be shaped exactly like the `hand`/`toc`/`template` responses, including `page_source`.
