@@ -3,7 +3,13 @@
 // It owns its own TemplateSheet; nothing else can open it. (Before F3 every
 // mounted TemplateBar listened to a global bus, so the TOC's Template button
 // opened one modal per mounted bar.)
-import React, { useState } from "react";
+//
+// F4: the bar is part of the screen's column (not an overlay), so it never
+// covers the card or Previous/Next. Layouts without a bottom bar (short
+// landscape, desktop) render it `hidden` and open the same sheet from a
+// header button through the ref (`open()`), so the sheet stays mounted in
+// one place across rotations and resizes.
+import React, { forwardRef, useImperativeHandle, useState } from "react";
 import { Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../ui";
@@ -12,7 +18,10 @@ import { loadTemplateForViewing } from "../study/useDeck";
 import { templateCounts } from "../study/template";
 import s from "../styles/components/TemplateBar.styles";
 
-export default function TemplateBar({ deckId, template = null, deckTitle = null, onHeight, hidden = false }) {
+const TemplateBar = forwardRef(function TemplateBar(
+  { deckId, template = null, deckTitle = null, onHeight, hidden = false },
+  ref
+) {
   const [open, setOpen] = useState(false);
   const [shown, setShown] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -38,6 +47,8 @@ export default function TemplateBar({ deckId, template = null, deckTitle = null,
       setLoading(false);
     }
   }
+
+  useImperativeHandle(ref, () => ({ open: openSheet }));
 
   return (
     <>
@@ -72,4 +83,6 @@ export default function TemplateBar({ deckId, template = null, deckTitle = null,
       />
     </>
   );
-}
+});
+
+export default TemplateBar;

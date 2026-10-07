@@ -1,10 +1,11 @@
 // src/components/source/CardCountControl.js
 // The deck size: the user's number, the analysis recommendation beside it,
-// a slider with labelled −/+ steps (keyboard path on web), and Reset.
+// a slider with labelled −/+ steps, and Reset. On web the slider is a native
+// range input (CardCountSlider.web.js, F4), so it is keyboard-operable too.
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
-import Slider from "@react-native-community/slider";
 import { Badge, Button, IconButton, Surface } from "../../ui";
+import CardCountSlider from "./CardCountSlider";
 import { colors, spacing, text, typeScale } from "../../theme";
 
 export default function CardCountControl({
@@ -58,24 +59,15 @@ export default function CardCountControl({
           disabled={locked || total <= limits.min}
           onPress={() => onChangeTotal(total - 1)}
         />
-        <Slider
+        <CardCountSlider
           style={[styles.slider, locked && styles.sliderLocked]}
-          minimumValue={limits.min}
-          maximumValue={limits.max}
-          step={1}
+          min={limits.min}
+          max={limits.max}
           value={total}
           disabled={locked}
-          onValueChange={(v) => onChangeTotal(Math.round(v))}
-          minimumTrackTintColor={locked ? colors.borderStrong : colors.accent}
-          maximumTrackTintColor={colors.border}
-          thumbTintColor={locked ? colors.borderStrong : colors.accent}
+          onChange={onChangeTotal}
           accessibilityLabel="Number of cards to generate"
-          // aria-* props: read by react-native-web 0.20 and RN ≥ 0.71 alike.
-          aria-valuemin={limits.min}
-          aria-valuemax={limits.max}
-          aria-valuenow={total}
-          aria-valuetext={`${total} cards`}
-          aria-disabled={!!locked}
+          valueText={`${total} cards`}
         />
         <IconButton
           icon="+"

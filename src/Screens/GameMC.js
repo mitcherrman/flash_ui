@@ -7,19 +7,25 @@
 // by an effect keyed on that step, so Next/Previous/TOC jump/unmount/leaving
 // the screen cancel it, and a late timer is ignored by the reducer anyway.
 // After answering, the card's source (section, page, excerpt) is shown.
+//
+// Layout (F4, src/study/layout.js) by window class, never by hover:
+//   phone / tablet  question, options, status and source scroll; Previous /
+//                   Next pinned in a footer.
+//   short           question (+ source after answering) on the left; options
+//                   on the right, scrolling if long, with the status line and
+//                   Previous / Next pinned under them.
+//   desktop         question and source on the left; options, status,
+//                   controls and scoring on the right.
+// Questions and options are never truncated or font-shrunk.
+// Web keyboard: 1–4 answer, ←/→ previous/next (src/study/shortcuts.js).
 import React, { useEffect, useMemo, useReducer, useRef, useState } from "react";
-import {
-  View,
-  Text,
-  Pressable,
-  Platform,
-  ScrollView,
-} from "react-native";
-import { useWindowDimensions } from "react-native";
+import { View, Text, Pressable, Platform, ScrollView } from "react-native";
 import { useSafeAreaInsets, SafeAreaView } from "react-native-safe-area-context";
+import { useIsFocused } from "@react-navigation/native";
 import * as Haptics from "expo-haptics";
 import CardShell from "../components/CardShell";
 import SourcePanel from "../components/study/SourcePanel";
+import StudyHeader from "../components/study/StudyHeader";
 import DeckStatus from "../components/study/DeckStatus";
 import { pickDistractors, shuffle } from "../utils/PickDistractors";
 import { useDeckHand, useSavedTemplate } from "../study/useDeck";
@@ -36,9 +42,16 @@ import {
   optionState,
   shouldAutoAdvance,
 } from "../study/mc";
+import { mcLayout, studyText } from "../study/layout";
+import { shortcutHint } from "../study/shortcuts";
+import { focusIsLost, focusRef, useStudyKeys } from "../study/useStudyKeys";
 import { backToPickerAction, openTocAction } from "../study/tocNav";
-import { Badge, Button, Chip, ChipGroup, StatusView } from "../ui";
+import { Badge, Button, Chip, ChipGroup, StatusView, useLayout } from "../ui";
 import { s, stateStyles } from "../styles/screens/GameMC.styles";
+
+const IS_WEB = Platform.OS === "web";
+const keys = (k) => (IS_WEB ? { "aria-keyshortcuts": k } : null);
+const QUESTION_MIN_H = { phone: 140, tablet: 180, short: 120, desktop: 200 };
 
 const tick = () => {
   try {
@@ -47,35 +60,12 @@ const tick = () => {
 };
 
 export default function GameMC({ route, navigation }) {
-  const { width, height } = useWindowDimensions();
+  const { width, height, layoutClass } = useLayout();
   const insets = useSafeAreaInsets();
-
-  // layout flags
-  const isLandscape = width > height;
-  const isWeb = Platform.OS === "web";
-  const canHover =
-    isWeb &&
-    typeof window !== "undefined" &&
-    window.matchMedia &&
-    window.matchMedia("(hover: hover)").matches;
-  const isDesktopWeb = isWeb && (width >= 1024 || canHover);
-  const shortLandscape = isLandscape && !isDesktopWeb;
-
-  // sizes — desktop gets larger canvas + card
-  const CONTENT_MAX_W = isDesktopWeb
-    ? Math.min(1400, Math.floor(width * 0.92))
-    : Math.min(960, Math.floor(width * 0.94));
-
-  const CARD_W = isDesktopWeb
-    ? Math.min(1000, Math.floor(CONTENT_MAX_W * 0.92))
-    : Math.min(720, CONTENT_MAX_W);
-
-  // small banner on mobile landscape, larger on desktop
-  const CARD_H = isDesktopWeb
-    ? Math.max(120, Math.min(240, Math.floor(height * 0.22)))
-    : isLandscape
-    ? Math.max(70, Math.min(110, Math.floor(height * 0.12)))
-    : Math.floor(CARD_W * 0.6);
+  const L = mcLayout({ layoutClass, width, height, insets });
+  const T = studyText(layoutClass);
+  const short = layoutClass === "short";
+  const isFocused = useIsFocused();
 
   const { deckId, startOrdinal = null, jump = null } = route.params || {};
   const deck = useDeckHand(deckId);
@@ -85,6 +75,8 @@ export default function GameMC({ route, navigation }) {
   const [mc, dispatch] = useReducer(mcReducer, undefined, initialMcState);
   const [gameMode, setGameMode] = useState("normal");
   const [showSource, setShowSource] = useState(true);
+  const questionRef = useRef(null);
+  const nextRef = useRef(null);
 
   const timerRef = useRef(null);
   if (!timerRef.current) timerRef.current = createAdvanceTimer();
@@ -154,6 +146,37 @@ export default function GameMC({ route, navigation }) {
     dispatch({ type: "resetScore" });
   };
 
+  // ——— Web keyboard (only while this screen is the visible one) ———
+  useStudyKeys({
+    enabled: isFocused && ready,
+    getContext: () => ({ mode: "mc", optionCount: options.length, answered: mc.picked != null }),
+    onAction: (a) => {
+      if (a.type === "answer") pick(a.option);
+      else if (a.type === "next") next();
+      else if (a.type === "prev") prev();
+    },
+  });
+
+  // Web: arriving here (from the Picker, or back from a TOC jump whose row was
+  // removed) leaves focus nowhere useful; put it on the question.
+  useEffect(() => {
+    if (!IS_WEB || !isFocused || !ready) return undefined;
+    const raf = requestAnimationFrame(() => {
+      if (focusIsLost()) focusRef(questionRef);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [isFocused, ready]);
+
+  // Web: answering disables the focused option, which would drop focus to
+  // the page; continue from Next instead (the button a wrong answer needs).
+  useEffect(() => {
+    if (!IS_WEB || mc.picked == null) return undefined;
+    const raf = requestAnimationFrame(() => {
+      if (focusIsLost()) focusRef(nextRef);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [mc.picked, mc.step]);
+
   if (deck.status !== "ready") {
     return <DeckStatus state={deck} deckId={deckId} navigation={navigation} />;
   }
@@ -175,68 +198,24 @@ export default function GameMC({ route, navigation }) {
     ? "Not quite. The correct answer is marked. That was the last card. Next goes back to card 1."
     : "Not quite. The correct answer is marked. Press Next when you're ready.";
 
-  const statusLine = status ? (
-    <Text style={s.status} accessibilityLiveRegion="polite" accessibilityRole="text">
-      {status}
-    </Text>
-  ) : null;
-
-  const source = answered ? (
-    <SourcePanel
-      card={card}
-      template={template}
-      revealed
-      showSource={showSource}
-      onToggleSource={setShowSource}
-      style={[s.source, { width: "100%", maxWidth: isDesktopWeb ? Math.min(CONTENT_MAX_W, CARD_W) : "100%" }]}
-    />
-  ) : null;
-
-  return (
-    <SafeAreaView style={s.container}>
-      {/* Top row */}
-      <View
-        style={[
-          s.topBar,
-          {
-            paddingTop: isDesktopWeb ? 10 : isLandscape ? 4 : 8,
-            paddingHorizontal: isDesktopWeb ? 18 : 10,
-            minHeight: isLandscape ? 48 : 60,
-          },
-        ]}
-      >
-        {/* Left */}
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-          <Button title="Back" variant="secondary" size="sm" accessibilityLabel="Back to deck" onPress={() => navigation.dispatch(backToPickerAction(deckId))} />
-        </View>
-
-        {/* Center title */}
-        {isLandscape ? (
-          <Text
-            style={[
-              s.counterLandscape,
-              { top: insets.top + (isDesktopWeb ? 2 : 6), fontSize: isDesktopWeb ? 18 : 16 },
-            ]}
-            accessibilityLiveRegion="polite"
-          >
-            Card {mc.idx + 1} of {total}
-          </Text>
-        ) : (
-          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-            {/* Narrow phones: 44px targets leave little room, so drop the word "Card" */}
-            <Text
-              style={[s.header, isDesktopWeb && { fontSize: 18 }]}
-              numberOfLines={1}
-              accessibilityLabel={`Card ${mc.idx + 1} of ${total}`}
-              accessibilityLiveRegion="polite"
-            >
-              {width < 480 ? `${mc.idx + 1}/${total}` : `Card ${mc.idx + 1} of ${total}`}
-            </Text>
-          </View>
-        )}
-
-        {/* Right */}
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+  // ——— Pieces ———
+  const header = (
+    <StudyHeader
+      index={mc.idx + 1}
+      total={total}
+      compact={width < 480}
+      maxWidth={L.rowW}
+      left={
+        <Button
+          title="Back"
+          variant="secondary"
+          size="sm"
+          accessibilityLabel="Back to deck"
+          onPress={() => navigation.dispatch(backToPickerAction(deckId))}
+        />
+      }
+      right={
+        <>
           {gameMode === "endless" && (
             <>
               <Badge tone="success" style={s.counterBadge} accessibilityLabel={`Right: ${mc.right}`}>✓ {mc.right}</Badge>
@@ -250,125 +229,175 @@ export default function GameMC({ route, navigation }) {
             accessibilityLabel="Table of contents"
             onPress={() => navigation.dispatch(openTocAction({ from: "GameMC", deckId, currentOrdinal: mc.idx + 1 }))}
           />
-        </View>
-      </View>
+        </>
+      }
+    />
+  );
 
-      {/* Card + options */}
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={[s.contentWrap, { maxWidth: CONTENT_MAX_W, width: "100%", alignSelf: "center" }]}
+  const question = (
+    <CardShell width={L.leftW} height="auto" variant="front" style={{ minHeight: QUESTION_MIN_H[layoutClass] }}>
+      <Text style={s.faceLabel}>Question</Text>
+      <Text
+        ref={questionRef}
+        style={[s.question, T.question]}
+        accessibilityRole="header"
+        {...(IS_WEB ? { tabIndex: -1 } : null)}
       >
-        <View style={{ alignItems: "center" }}>
-          <CardShell width={CARD_W} height={CARD_H} variant="front">
-            <Text
-              style={[
-                s.question,
-                isLandscape && !isDesktopWeb && { fontSize: 15 },
-                isDesktopWeb && { fontSize: 22, lineHeight: 28 },
-              ]}
-              numberOfLines={isDesktopWeb ? 2 : isLandscape ? 1 : 3}
-              adjustsFontSizeToFit
-              minimumFontScale={0.65}
-              accessibilityRole="header"
-            >
-              {card.front}
-            </Text>
-          </CardShell>
-        </View>
+        {card.front}
+      </Text>
+    </CardShell>
+  );
 
-        <View style={[s.optsWrap, { marginTop: isLandscape ? 10 : 14, alignItems: "center" }]}>
-          <View
-            style={[
-              s.opts,
-              {
-                width: "100%",
-                maxWidth: isDesktopWeb ? Math.min(CONTENT_MAX_W, CARD_W) : "100%",
-              },
+  const optionList = (
+    <View style={s.opts} accessibilityRole="list" accessibilityLabel="Answer options">
+      {options.map((opt, i) => {
+        const { state, tag } = optionState({ index: i, picked: mc.picked, correctIndex });
+        const isPicked = mc.picked === i;
+        return (
+          <Pressable
+            key={`${mc.step}-${i}`}
+            onPress={() => pick(i)}
+            disabled={answered}
+            accessibilityRole="button"
+            accessibilityLabel={optionLabel({ index: i, text: opt, picked: mc.picked, correctIndex })}
+            accessibilityState={{ selected: isPicked, disabled: answered }}
+            {...keys(String(i + 1))}
+            style={({ hovered }) => [
+              s.opt,
+              { minHeight: L.optionMinH },
+              short && s.optShort,
+              hovered && !answered && s.optHover,
+              stateStyles[state],
             ]}
-            accessibilityRole="list"
-            accessibilityLabel="Answer options"
           >
-            {options.map((opt, i) => {
-              const { state, tag } = optionState({ index: i, picked: mc.picked, correctIndex });
-              const isPicked = mc.picked === i;
-              return (
-                <Pressable
-                  key={`${mc.step}-${i}`}
-                  onPress={() => pick(i)}
-                  disabled={answered}
-                  accessibilityRole="button"
-                  accessibilityLabel={optionLabel({ index: i, text: opt, picked: mc.picked, correctIndex })}
-                  accessibilityState={{ selected: isPicked, disabled: answered }}
-                  style={({ hovered }) => [
-                    s.opt,
-                    isDesktopWeb && { minHeight: 56, paddingVertical: 14 },
-                    isLandscape && !isDesktopWeb && { minHeight: 40, paddingVertical: 8 },
-                    hovered && !answered && s.optHover,
-                    stateStyles[state],
-                  ]}
-                >
-                  <View style={s.optRow}>
-                    <Text
-                      style={[
-                        s.optLetter,
-                        isLandscape && !isDesktopWeb && { fontSize: 14, lineHeight: 18 },
-                        state !== "idle" && stateStyles[`${state}Text`],
-                      ]}
-                    >
-                      {/* Short landscape has no room for a tag line, so the
-                          ✓/✗ takes the letter's place (still not colour-only). */}
-                      {shortLandscape && tag ? (state === "correct" ? "✓" : "✗") : OPTION_LETTERS[i]}
-                    </Text>
-                    <View style={s.optBody}>
-                      <Text
-                        style={[
-                          s.optText,
-                          isDesktopWeb && { fontSize: 18, lineHeight: 24 },
-                          isLandscape && !isDesktopWeb && { fontSize: 14, lineHeight: 18 },
-                          state !== "idle" && stateStyles[`${state}Text`],
-                        ]}
-                      >
-                        {opt}
-                      </Text>
-                      {!!tag && !shortLandscape && (
-                        <Text style={[s.optTag, stateStyles[`${state}Text`]]}>
-                          {state === "correct" ? "✓ " : "✗ "}
-                          {tag}
-                        </Text>
-                      )}
-                    </View>
-                  </View>
-                </Pressable>
-              );
-            })}
+            <View style={s.optRow}>
+              <Text style={[s.optLetter, state !== "idle" && stateStyles[`${state}Text`]]}>
+                {/* Short landscape keeps options one line shorter: the ✓/✗
+                    takes the letter's place (still not colour-only; the
+                    accessible label has the full wording). */}
+                {short && tag ? (state === "correct" ? "✓" : "✗") : OPTION_LETTERS[i]}
+              </Text>
+              <View style={s.optBody}>
+                <Text style={[s.optText, T.option, state !== "idle" && stateStyles[`${state}Text`]]}>{opt}</Text>
+                {!!tag && !short && (
+                  <Text style={[s.optTag, stateStyles[`${state}Text`]]}>
+                    {state === "correct" ? "✓ " : "✗ "}
+                    {tag}
+                  </Text>
+                )}
+              </View>
+            </View>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+
+  const statusLine = status ? (
+    <Text style={[s.status, short && s.statusShort]} accessibilityLiveRegion="polite" accessibilityRole="text">
+      {status}
+    </Text>
+  ) : null;
+
+  const source = answered ? (
+    <SourcePanel
+      card={card}
+      template={template}
+      revealed
+      showSource={showSource}
+      onToggleSource={setShowSource}
+      style={s.source}
+    />
+  ) : null;
+
+  const navRow = (style) => (
+    <View style={[s.controls, style]}>
+      <Button title="Previous" variant="secondary" accessibilityLabel="Previous card" onPress={prev} style={s.navBtn} {...keys("ArrowLeft")} />
+      <Button ref={nextRef} title="Next" accessibilityLabel="Next card" onPress={next} style={s.navBtn} {...keys("ArrowRight")} />
+    </View>
+  );
+
+  const scoring = (
+    <ChipGroup label="Scoring" style={s.modeToggleWrap}>
+      {SCORE_MODES.map((m) => (
+        <Chip
+          key={m.id}
+          label={m.label}
+          accessibilityLabel={m.description}
+          selected={gameMode === m.id}
+          onPress={() => switchMode(m.id)}
+        />
+      ))}
+    </ChipGroup>
+  );
+
+  const headerWrap = <View style={[s.headerWrap, short && s.headerWrapShort, { paddingHorizontal: L.gutter }]}>{header}</View>;
+
+  // ——— Short landscape: question (+ source) | options + controls ———
+  if (short) {
+    return (
+      <SafeAreaView style={s.container}>
+        {headerWrap}
+        <View style={[s.shortBody, { width: L.rowW }]}>
+          <ScrollView style={{ width: L.leftW, flexGrow: 0 }} contentContainerStyle={s.colScroll}>
+            {question}
+            {source}
+            {scoring}
+          </ScrollView>
+          <View style={[s.side, { width: L.rightW }]}>
+            <ScrollView style={s.fill} contentContainerStyle={s.colScroll}>
+              {optionList}
+            </ScrollView>
+            {statusLine}
+            {navRow(s.controlsSide)}
           </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
-          {/* Status and source after answering. In short landscape they go
-              below the controls so those keep their place (layout is F4's). */}
-          {!shortLandscape && statusLine}
-          {!shortLandscape && source}
-
-          <View style={[s.controls, { marginBottom: 12 }]}>
-            <Button title="Previous" variant="secondary" accessibilityLabel="Previous card" onPress={prev} style={s.navBtn} />
-            <Button title="Next" accessibilityLabel="Next card" onPress={next} style={s.navBtn} />
+  // ——— Desktop: question + source | options + controls ———
+  if (L.columns === 2) {
+    return (
+      <SafeAreaView style={s.container}>
+        {headerWrap}
+        <ScrollView style={s.fill} contentContainerStyle={[s.desktopScroll, { paddingHorizontal: L.gutter }]}>
+          <View style={[s.desktopRow, { width: L.rowW }]}>
+            <View style={[s.col, { width: L.leftW }]}>
+              {question}
+              {source}
+            </View>
+            <View style={[s.col, { width: L.rightW }]}>
+              {optionList}
+              {statusLine}
+              {navRow(s.controlsUnder)}
+              {scoring}
+              {L.showKeyHint && IS_WEB ? (
+                <Text style={s.keyHint}>{shortcutHint("mc", options.length)}</Text>
+              ) : null}
+            </View>
           </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
 
-          {shortLandscape && statusLine}
-          {shortLandscape && source}
-
-          <ChipGroup label="Scoring" style={[s.modeToggleWrap, { marginBottom: 16 + insets.bottom }]}>
-            {SCORE_MODES.map((m) => (
-              <Chip
-                key={m.id}
-                label={m.label}
-                accessibilityLabel={m.description}
-                selected={gameMode === m.id}
-                onPress={() => switchMode(m.id)}
-              />
-            ))}
-          </ChipGroup>
+  // ——— Phone / tablet: one column, controls pinned ———
+  return (
+    <SafeAreaView style={s.container}>
+      {headerWrap}
+      <ScrollView style={s.fill} contentContainerStyle={[s.columnScroll, { paddingHorizontal: L.gutter }]}>
+        <View style={[s.col, { width: L.leftW }]}>
+          {question}
+          {optionList}
+          {statusLine}
+          {source}
+          {scoring}
         </View>
       </ScrollView>
+      <View style={[s.footer, { paddingHorizontal: L.gutter }]}>
+        {navRow({ width: L.leftW })}
+      </View>
     </SafeAreaView>
   );
 }

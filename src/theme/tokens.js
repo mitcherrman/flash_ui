@@ -159,6 +159,11 @@ export const motion = {
 export const layout = {
   // Breakpoints (window width, dp/px)
   breakpoints: { tablet: 600, desktop: 1024, wide: 1280 },
+  // Short landscape (phones on their side, very short windows): landscape
+  // and shorter than this. Below `shortMinWidth` a landscape window is too
+  // narrow for side-by-side columns and keeps the phone layout. (F4)
+  shortMaxHeight: 520,
+  shortMinWidth: 560,
   // Page gutters per breakpoint
   gutter: { phone: 16, tablet: 24, desktop: 32 },
   // Content column max widths (web/tablet)

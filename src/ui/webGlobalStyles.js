@@ -25,6 +25,9 @@ body {
   outline-offset: 2px !important;
 }
 input:focus-visible, textarea:focus-visible { outline-offset: 0 !important; }
+/* Programmatic focus targets (tabindex=-1, e.g. the MC question after a TOC
+   jump) are not controls: no ring. Every control keeps it. */
+[tabindex="-1"]:focus, [tabindex="-1"]:focus-visible { outline: none !important; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     transition-duration: 0.01ms !important;

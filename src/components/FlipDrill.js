@@ -7,58 +7,53 @@
 // never animated back, so the next card's answer is never visible mid-turn.
 // The source excerpt stays hidden until the answer has been revealed on this
 // card visit (it is the passage the answer was written from).
+//
+// Layout (F4, src/study/layout.js) by window class, never by hover:
+//   phone / tablet  card + source scroll; Previous/Next pinned in a footer
+//                   above the template bar.
+//   short           card on the left (its column scrolls if the text is
+//                   long); source and Previous/Next on the right; the
+//                   template is a header button, so nothing covers the card.
+//   desktop         card with Previous/Next under it, source beside it.
+// The card grows to fit long text instead of clipping it.
+// Web keyboard: Space/Enter flip, ←/→ previous/next (src/study/shortcuts.js).
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
-  SafeAreaView,
   View,
   Text,
   StyleSheet,
   Pressable,
-  useWindowDimensions,
+  ScrollView,
   Animated,
   PanResponder,
   Platform,
 } from "react-native";
 import * as Haptics from "expo-haptics";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { useIsFocused } from "@react-navigation/native";
 
 import CardShell from "./CardShell";
 import SourcePanel from "./study/SourcePanel";
-import { motion } from "../theme";
-import { Button, USE_NATIVE_DRIVER, useReducedMotion } from "../ui";
+import StudyHeader from "./study/StudyHeader";
+import { motion, spacing } from "../theme";
+import { Button, USE_NATIVE_DRIVER, useLayout, useReducedMotion } from "../ui";
 import { indexForOrdinal } from "../study/deck";
 import { backToPickerAction, openTocAction } from "../study/tocNav";
+import {
+  flipCardHeight,
+  flipDrillLayout,
+  isHorizontalSwipe,
+  studyText,
+  swipeDirection,
+  swipeThreshold,
+} from "../study/layout";
+import { shortcutHint } from "../study/shortcuts";
+import { focusIsLost, focusRef, useStudyKeys } from "../study/useStudyKeys";
 import styles from "../styles/components/FlipDrill.styles";
 
-// --- Visual tuning knobs (easy to adjust) ---
-// You can tune the button positions separately for portrait & landscape.
-const TUNE = {
-  // Card proportions & scaling
-  CARD_ASPECT: 0.60,            // height = width * aspect (portrait baseline)
-  PORTRAIT_CARD_SCALE: 0.98,     // 0.80–1.00 (smaller = smaller card in portrait)
-
-  // Landscape layout reserves space for controls below the card
-  LANDSCAPE_MIN_CARD_H: 140,     // px minimum height in landscape
-  LANDSCAPE_CONTROLS_H: 72,      // reserved space below card (landscape)
-
-  // Prev/Next absolute positioning (distance from bottom)
-  BUTTONS_BOTTOM_PORTRAIT: 50,   // ↑ raise to move higher in portrait
-  BUTTONS_BOTTOM_LANDSCAPE: 10,  // ↑ raise to move higher in landscape
-
-  // Spacing between buttons
-  BUTTONS_GAP_PORTRAIT: 10,
-  BUTTONS_GAP_LANDSCAPE: 10,
-
-  // Web, landscape windows with room to spare (desktop/laptop): the source
-  // panel, Prev/Next and the template bar sit below the card, so reserve
-  // their height instead of letting the bar cover Next (seen at 1280×800).
-  // Short landscape (phones) keeps the rule above; that layout is F4's.
-  WEB_BELOW_CARD_H: 360,
-  WEB_ROOMY_MIN_CARD_H: 300,
-};
-
-const SWIPE_ACTIVATE_PX = 20;
-const SWIPE_TRIGGER_PX = 100;
+const IS_WEB = Platform.OS === "web";
+// Announce the key a control also answers to (web only; native ignores keys).
+const keys = (k) => (IS_WEB ? { "aria-keyshortcuts": k } : null);
 
 // Haptics are native-only; never let an unsupported platform reject loudly.
 const tick = () => {
@@ -80,32 +75,13 @@ export default function FlipDrill({
   startOrdinal = null,
   jump = null,
   navigation,
+  onOpenTemplate = null, // header "Template" button (short / desktop layouts)
 }) {
-  const { width, height } = useWindowDimensions();
+  const { width, height, layoutClass } = useLayout();
   const insets = useSafeAreaInsets();
-  const isLandscape = width > height;
-
-  // ——— Size calc (portrait: big card; landscape: ensure room for Prev/Next) ———
-  const H_PADDING = 16;
-  const V_PADDING = isLandscape ? 8 : 16;
-
-  const availW = width - insets.left - insets.right - H_PADDING * 2;
-  const availH = height - insets.top - insets.bottom - V_PADDING * 2;
-
-  let CARD_W, CARD_H;
-  if (!isLandscape) {
-    CARD_W = Math.min(900, availW * TUNE.PORTRAIT_CARD_SCALE);
-    CARD_H = Math.round(CARD_W * TUNE.CARD_ASPECT);
-  } else {
-    // In landscape, leave room for the control row
-    const roomyWeb = Platform.OS === "web" && availH - TUNE.WEB_BELOW_CARD_H >= TUNE.WEB_ROOMY_MIN_CARD_H;
-    const reserve = roomyWeb ? TUNE.WEB_BELOW_CARD_H : TUNE.LANDSCAPE_CONTROLS_H + 16;
-    const hForCard = Math.max(TUNE.LANDSCAPE_MIN_CARD_H, availH - reserve);
-    CARD_W = Math.min(900, availW);
-    CARD_H = Math.min(hForCard, Math.round(CARD_W * TUNE.CARD_ASPECT));
-    // If card ends up too tall, clamp by height
-    CARD_W = Math.min(CARD_W, Math.round(CARD_H / TUNE.CARD_ASPECT));
-  }
+  const L = flipDrillLayout({ layoutClass, width, height, insets });
+  const T = studyText(layoutClass);
+  const isFocused = useIsFocused();
 
   // ——— State ———
   const total = cards.length;
@@ -114,8 +90,21 @@ export default function FlipDrill({
   const [revealed, setRevealed] = useState(false); // answer shown on this card visit
   const [showSource, setShowSource] = useState(true);
 
+  // Measured: the short layout's body height, and each face's text height
+  // (the card grows to fit long text rather than clipping it).
+  const [bodyH, setBodyH] = useState(0);
+  const [textH, setTextH] = useState({ front: 0, back: 0 });
+  const measureFace = (face) => (e) => {
+    const h = Math.ceil(e.nativeEvent.layout.height);
+    setTextH((prev) => (prev[face] === h ? prev : { ...prev, [face]: h }));
+  };
+  const baseCardH = layoutClass === "short" && bodyH > 0 ? Math.max(160, bodyH) : L.baseCardH;
+  const CARD_W = L.cardW;
+  const CARD_H = flipCardHeight(baseCardH, Math.max(textH.front, textH.back));
+
   const flipAnim = useRef(new Animated.Value(0)).current; // 0 -> front, 180 -> back
   const panX = useRef(new Animated.Value(0)).current;
+  const cardRef = useRef(null);
   const reduceMotion = useReducedMotion();
 
   // Every card change goes through here: question side, instantly.
@@ -173,8 +162,8 @@ export default function FlipDrill({
   };
 
   // ——— Swipe nav (handlers read the latest state through a ref) ———
-  const navRef = useRef({ next: nextCard, prev: prevCard });
-  navRef.current = { next: nextCard, prev: prevCard };
+  const navRef = useRef({ next: nextCard, prev: prevCard, threshold: 100 });
+  navRef.current = { next: nextCard, prev: prevCard, threshold: swipeThreshold(CARD_W) };
   const springBack = () => {
     if (reduceMotion) panX.setValue(0);
     else Animated.spring(panX, { toValue: 0, useNativeDriver: USE_NATIVE_DRIVER }).start();
@@ -185,11 +174,13 @@ export default function FlipDrill({
   const responder = useMemo(
     () =>
       PanResponder.create({
-        onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > SWIPE_ACTIVATE_PX,
+        // Clearly horizontal drags only, so vertical scrolling keeps working.
+        onMoveShouldSetPanResponder: (_, g) => isHorizontalSwipe(g.dx, g.dy),
         onPanResponderMove: (_, g) => panX.setValue(g.dx),
         onPanResponderRelease: (_, g) => {
-          if (g.dx > SWIPE_TRIGGER_PX) navRef.current.prev();
-          else if (g.dx < -SWIPE_TRIGGER_PX) navRef.current.next();
+          const dir = swipeDirection(g.dx, navRef.current.threshold);
+          if (dir === "next") navRef.current.next();
+          else if (dir === "prev") navRef.current.prev();
           springRef.current();
         },
         onPanResponderTerminate: () => springRef.current(),
@@ -197,163 +188,208 @@ export default function FlipDrill({
     [panX]
   );
 
+  // ——— Web keyboard (only while this screen is the visible one) ———
+  useStudyKeys({
+    enabled: isFocused,
+    getContext: () => ({ mode: "flip" }),
+    onAction: (a) => {
+      if (a.type === "flip") toggleFlip();
+      else if (a.type === "next") nextCard();
+      else if (a.type === "prev") prevCard();
+    },
+  });
+
+  // Web: arriving here (from the Picker, or back from a TOC jump whose row was
+  // removed) leaves focus nowhere useful; put it on the card.
+  useEffect(() => {
+    if (!IS_WEB || !isFocused) return undefined;
+    const raf = requestAnimationFrame(() => {
+      if (focusIsLost()) focusRef(cardRef);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [isFocused]);
+
   const handleBack = () => navigation?.dispatch(backToPickerAction(deckId));
   const openToc = () => navigation?.dispatch(openTocAction({ from: "Game2", deckId, currentOrdinal: idx + 1 }));
 
   const card = cards[idx] || {};
-  const counter = `Card ${idx + 1} of ${total}`;
+  const desktop = layoutClass === "desktop";
+  const pointerHint = desktop && IS_WEB;
 
-  // ——— TOP BAR: uncluttered (Back • centered counter • Contents) ———
-  return (
-    <SafeAreaView style={[styles.container, { paddingTop: V_PADDING, paddingBottom: V_PADDING }]}>
-      <View
-        style={[
-          styles.topBar,
-          {
-            width: "92%",
-            minHeight: isLandscape ? 44 : 56,
-            alignSelf: "center",
-          },
-        ]}
-      >
-        {/* Left */}
-        <View style={{ flexDirection: "row", alignItems: "center" }}>
-          <Button title="Back" variant="secondary" size="sm" accessibilityLabel="Back to deck" onPress={handleBack} />
-        </View>
-
-        {/* Center (always visible; absolute centering in landscape to prevent squish) */}
-        <Text
-          style={isLandscape ? styles.counterLandscape : styles.counter}
-          accessibilityLiveRegion="polite"
-          accessibilityRole="text"
-        >
-          {counter}
-        </Text>
-
-        {/* Right */}
-        <View style={{ flexDirection: "row", alignItems: "center" }}>
+  // ——— Pieces ———
+  const header = (
+    <StudyHeader
+      index={idx + 1}
+      total={total}
+      compact={width < 480}
+      maxWidth={L.columns === 2 ? L.rowW : L.cardW}
+      left={<Button title="Back" variant="secondary" size="sm" accessibilityLabel="Back to deck" onPress={handleBack} />}
+      right={
+        <>
+          {L.templatePlacement === "header" && onOpenTemplate ? (
+            <Button
+              title="Template"
+              variant="secondary"
+              size="sm"
+              accessibilityLabel="Open study template"
+              onPress={onOpenTemplate}
+            />
+          ) : null}
           {navigation ? (
             <Button title="Contents" variant="secondary" size="sm" accessibilityLabel="Table of contents" onPress={openToc} />
           ) : null}
-        </View>
-      </View>
+        </>
+      }
+    />
+  );
 
-      {/* CARD (press to flip) */}
+  const cardEl = (
+    <Animated.View
+      {...responder.panHandlers}
+      style={[{ width: CARD_W, height: CARD_H }, { transform: [{ translateX: panX }] }]}
+    >
+      {/* FRONT — hidden from assistive tech while the answer shows */}
       <Animated.View
-        {...responder.panHandlers}
+        aria-hidden={flipped}
+        importantForAccessibility={flipped ? "no-hide-descendants" : "auto"}
+        accessibilityElementsHidden={flipped}
         style={[
-          {
-            width: CARD_W,
-            height: CARD_H,
-            alignSelf: "center",
-            marginTop: isLandscape ? 8 : 16,
-          },
-          { transform: [{ translateX: panX }] },
+          StyleSheet.absoluteFillObject,
+          { backfaceVisibility: "hidden" },
+          { transform: [{ perspective: 1000 }, { rotateY: frontRot }] },
         ]}
       >
-        {/* FRONT — hidden from assistive tech while the answer shows */}
-        <Animated.View
-          aria-hidden={flipped}
-          importantForAccessibility={flipped ? "no-hide-descendants" : "auto"}
-          accessibilityElementsHidden={flipped}
-          style={[
-            StyleSheet.absoluteFillObject,
-            { backfaceVisibility: "hidden" },
-            { transform: [{ perspective: 1000 }, { rotateY: frontRot }] },
-          ]}
-        >
-          <CardShell width={CARD_W} height={CARD_H} variant="front">
-            <Text style={styles.faceLabel}>Question</Text>
-            <View style={local.cardInner}>
-              <Text style={styles.textFront}>{card.front}</Text>
+        <CardShell width={CARD_W} height={CARD_H} variant="front">
+          <Text style={styles.faceLabel}>Question</Text>
+          <View style={styles.cardInner}>
+            <View style={styles.measure} onLayout={measureFace("front")}>
+              <Text style={[styles.textFront, T.front]}>{card.front}</Text>
             </View>
-            <Text style={styles.faceHint}>Tap the card to show the answer</Text>
-          </CardShell>
-        </Animated.View>
-
-        {/* BACK — not exposed to assistive tech until revealed */}
-        <Animated.View
-          aria-hidden={!flipped}
-          importantForAccessibility={flipped ? "auto" : "no-hide-descendants"}
-          accessibilityElementsHidden={!flipped}
-          style={[
-            StyleSheet.absoluteFillObject,
-            { backfaceVisibility: "hidden" },
-            { transform: [{ perspective: 1000 }, { rotateY: backRot }] },
-          ]}
-        >
-          <CardShell width={CARD_W} height={CARD_H} variant="back">
-            <Text style={[styles.faceLabel, styles.faceLabelBack]}>Answer</Text>
-            <View style={local.cardInner}>
-              <Text style={styles.textBack}>{flipped || revealed ? card.back : ""}</Text>
-            </View>
-            <Text style={[styles.faceHint, styles.faceLabelBack]}>Tap to see the question again</Text>
-          </CardShell>
-        </Animated.View>
-
-        {/* Tap to flip */}
-        <Pressable
-          style={StyleSheet.absoluteFillObject}
-          accessibilityRole="button"
-          accessibilityLabel={
-            flipped
-              ? `Answer: ${sentence(card.back)} Show the question`
-              : `Question: ${sentence(card.front)} Show the answer`
-          }
-          accessibilityState={{ expanded: flipped }}
-          onPress={toggleFlip}
-        />
+          </View>
+          <Text style={styles.faceHint}>
+            {pointerHint ? "Click the card or press Space to show the answer" : "Tap the card to show the answer"}
+          </Text>
+        </CardShell>
       </Animated.View>
 
-      {/* ── Source panel: metadata always, excerpt only after reveal ───── */}
-      {!(Platform.OS !== "web" && isLandscape) && (
-        <SourcePanel
-          card={card}
-          template={template}
-          revealed={revealed}
-          showSource={showSource}
-          onToggleSource={setShowSource}
-          style={{ width: CARD_W, alignSelf: "center", marginTop: 12 }}
-        />
-      )}
-
-      {/* Prev / Next — absolute, with web-safe positioning */}
-      <View
-        style={{
-          position: Platform.OS === "web" ? "relative" : "absolute",
-          left: 0,
-          right: 0,
-          flexDirection: "row",
-          justifyContent: "center",
-          gap: isLandscape
-            ? TUNE.BUTTONS_GAP_LANDSCAPE
-            : TUNE.BUTTONS_GAP_PORTRAIT,
-          marginTop:
-            Platform.OS === "web"
-              ? 24 // on desktop, space below card
-              : 0,
-          bottom:
-            Platform.OS !== "web"
-              ? insets.bottom +
-                (isLandscape
-                  ? TUNE.BUTTONS_BOTTOM_LANDSCAPE
-                  : TUNE.BUTTONS_BOTTOM_PORTRAIT)
-              : undefined,
-        }}
+      {/* BACK — not exposed to assistive tech until revealed */}
+      <Animated.View
+        aria-hidden={!flipped}
+        importantForAccessibility={flipped ? "auto" : "no-hide-descendants"}
+        accessibilityElementsHidden={!flipped}
+        style={[
+          StyleSheet.absoluteFillObject,
+          { backfaceVisibility: "hidden" },
+          { transform: [{ perspective: 1000 }, { rotateY: backRot }] },
+        ]}
       >
-        <Button title="Previous" variant="secondary" accessibilityLabel="Previous card" onPress={prevCard} style={styles.navBtn} />
-        <Button title="Next" accessibilityLabel="Next card" onPress={nextCard} style={styles.navBtn} />
-      </View>
+        <CardShell width={CARD_W} height={CARD_H} variant="back">
+          <Text style={[styles.faceLabel, styles.faceLabelBack]}>Answer</Text>
+          <View style={styles.cardInner}>
+            <View style={styles.measure} onLayout={measureFace("back")}>
+              <Text style={[styles.textBack, T.back]}>{flipped || revealed ? card.back : ""}</Text>
+            </View>
+          </View>
+          <Text style={[styles.faceHint, styles.faceLabelBack]}>
+            {pointerHint ? "Click or press Space to see the question again" : "Tap to see the question again"}
+          </Text>
+        </CardShell>
+      </Animated.View>
+
+      {/* Tap to flip: one target for both faces, so focus stays put on flip */}
+      <Pressable
+        ref={cardRef}
+        style={StyleSheet.absoluteFillObject}
+        accessibilityRole="button"
+        accessibilityLabel={
+          flipped
+            ? `Answer: ${sentence(card.back)} Show the question`
+            : `Question: ${sentence(card.front)} Show the answer`
+        }
+        accessibilityState={{ expanded: flipped }}
+        onPress={toggleFlip}
+        {...keys("Space Enter")}
+      />
+    </Animated.View>
+  );
+
+  const source = (style) => (
+    <SourcePanel
+      card={card}
+      template={template}
+      revealed={revealed}
+      showSource={showSource}
+      onToggleSource={setShowSource}
+      style={style}
+    />
+  );
+
+  const navRow = (style) => (
+    <View style={[styles.navRow, style]}>
+      <Button
+        title="Previous"
+        variant="secondary"
+        accessibilityLabel="Previous card"
+        onPress={prevCard}
+        style={styles.navBtn}
+        {...keys("ArrowLeft")}
+      />
+      <Button title="Next" accessibilityLabel="Next card" onPress={nextCard} style={styles.navBtn} {...keys("ArrowRight")} />
+    </View>
+  );
+
+  // ——— Short landscape: card | source + controls ———
+  if (layoutClass === "short") {
+    return (
+      <SafeAreaView edges={["top", "bottom", "left", "right"]} style={styles.container}>
+        <View style={[styles.headerWrap, styles.headerWrapShort, { paddingHorizontal: L.gutter }]}>{header}</View>
+        <View
+          style={[styles.shortBody, { width: L.rowW }]}
+          onLayout={(e) => setBodyH(Math.floor(e.nativeEvent.layout.height) - spacing.sm)}
+        >
+          <ScrollView style={{ width: CARD_W, flexGrow: 0 }} contentContainerStyle={styles.shortCardScroll}>
+            {cardEl}
+          </ScrollView>
+          <View style={[styles.side, { width: L.sideW }]}>
+            <ScrollView style={styles.fill} contentContainerStyle={styles.sideScroll}>
+              {source({ width: "100%" })}
+            </ScrollView>
+            {navRow(styles.navRowSide)}
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // ——— Desktop: card + controls | source ———
+  if (desktop) {
+    return (
+      <SafeAreaView edges={["top", "bottom", "left", "right"]} style={styles.container}>
+        <View style={[styles.headerWrap, { paddingHorizontal: L.gutter }]}>{header}</View>
+        <ScrollView style={styles.fill} contentContainerStyle={[styles.desktopScroll, { paddingHorizontal: L.gutter }]}>
+          <View style={[styles.desktopRow, { width: L.rowW }]}>
+            <View style={{ width: CARD_W }}>
+              {cardEl}
+              {navRow(styles.navRowUnder)}
+              {L.showKeyHint && IS_WEB ? <Text style={styles.keyHint}>{shortcutHint("flip")}</Text> : null}
+            </View>
+            {source({ width: L.sideW })}
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  // ——— Phone / tablet: one column, controls pinned above the template bar ———
+  const barShown = L.templatePlacement === "bar";
+  return (
+    <SafeAreaView edges={barShown ? ["top", "left", "right"] : ["top", "bottom", "left", "right"]} style={styles.container}>
+      <View style={[styles.headerWrap, { paddingHorizontal: L.gutter }]}>{header}</View>
+      <ScrollView style={styles.fill} contentContainerStyle={[styles.columnScroll, { paddingHorizontal: L.gutter }]}>
+        {cardEl}
+        {source({ width: CARD_W, marginTop: spacing.md })}
+      </ScrollView>
+      <View style={[styles.footer, { paddingHorizontal: L.gutter }]}>{navRow({ width: CARD_W })}</View>
     </SafeAreaView>
   );
 }
-
-const local = StyleSheet.create({
-  cardInner: {
-    flex: 1,
-    width: "100%",
-    paddingHorizontal: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-});

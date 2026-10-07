@@ -9,7 +9,7 @@ import { Easing, Platform } from "react-native";
 import { colors, layout, motion, palette, radius, spacing, typeScale } from "./tokens";
 
 export { colors, layout, motion, palette, radius, spacing, typeScale };
-export { getBreakpoint, resolveGutter, resolveMaxWidth } from "./breakpoints";
+export { getBreakpoint, getLayoutClass, resolveGutter, resolveMaxWidth } from "./breakpoints";
 
 // Ready-to-use text styles (type scale + default colour).
 export const text = {

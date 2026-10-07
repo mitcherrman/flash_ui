@@ -5,24 +5,47 @@
 // Navigation: a jump dispatches POP_TO (src/study/tocNav.js), so the study
 // screen underneath is reused instead of a new one being pushed each time.
 // Template: this screen owns exactly one TemplateSheet.
-import React, { useMemo, useState } from "react";
-import { View, Text, FlatList } from "react-native";
+//
+// F4 positioning (decisions in src/study/tocList.js):
+//   • opened from a study screen, the current card is scrolled into view
+//     once, without animation, a third of the way down (virtualised rows
+//     that aren't laid out yet are reached through onScrollToIndexFailed);
+//   • opened from the Picker, the list starts at the top;
+//   • typing a search shows results from the top; clearing it returns to
+//     the current card.
+// Web keyboard: Escape clears the search, or (empty search) goes back to
+// studying. Focus moves to the current card's row on arrival.
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { View, Text, FlatList, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useIsFocused } from "@react-navigation/native";
 import styles from "../styles/screens/TOCScreen.styles";
 import DeckStatus from "../components/study/DeckStatus";
 import TemplateSheet from "../components/study/TemplateSheet";
 import { loadTemplateForViewing, useDeckToc } from "../study/useDeck";
 import { cardPageLabel } from "../study/provenance";
 import { backToPickerAction, tocJumpAction } from "../study/tocNav";
+import {
+  CURRENT_ROW_VIEW_POSITION,
+  currentRowIndex,
+  filterTocRows,
+  initialRenderCount,
+  scrollAfterQueryChange,
+  tocCountLine,
+  tocRows,
+} from "../study/tocList";
+import { isModalOpen } from "../study/useStudyKeys";
 import { Badge, Button, PageHeader, Surface, TextField, useLayout } from "../ui";
 
 let jumpSeq = 0;
+const IS_WEB = Platform.OS === "web";
 
 export default function TOCScreen({ route, navigation }) {
   const { deckId, returnTo = "Game2", currentOrdinal = null } = route.params || {};
   const toc = useDeckToc(deckId);
   const [q, setQ] = useState("");
   const { gutter } = useLayout();
+  const isFocused = useIsFocused();
 
   // Template sheet (one owner: this screen)
   const [tplOpen, setTplOpen] = useState(false);
@@ -30,14 +53,76 @@ export default function TOCScreen({ route, navigation }) {
   const [tplLoading, setTplLoading] = useState(false);
   const [tplError, setTplError] = useState("");
 
-  const items = toc.items;
-  const filtered = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    if (!needle) return items;
-    return items.filter(
-      (it) => (it.section || "").toLowerCase().includes(needle) || (it.front || "").toLowerCase().includes(needle)
-    );
-  }, [items, q]);
+  const rows = useMemo(() => tocRows(toc.items), [toc.items]);
+  const filtered = useMemo(() => filterTocRows(rows, q), [rows, q]);
+  const currentIndex = useMemo(() => currentRowIndex(rows, currentOrdinal), [rows, currentOrdinal]);
+
+  // ——— Bring the current card into view ———
+  const listRef = useRef(null);
+  const scrolledRef = useRef(false);
+  const prevQueryRef = useRef(q);
+  const retryRef = useRef(null);
+
+  const scrollToRow = (index) => {
+    const list = listRef.current;
+    if (!list || index == null) return;
+    list.scrollToIndex({ index, viewPosition: CURRENT_ROW_VIEW_POSITION, animated: false });
+  };
+
+  // The row isn't laid out yet (virtualised): jump near it by the average
+  // row height, then aim again once it has rendered.
+  const onScrollToIndexFailed = ({ index, averageItemLength }) => {
+    listRef.current?.scrollToOffset({ offset: Math.max(0, averageItemLength * index), animated: false });
+    clearTimeout(retryRef.current);
+    retryRef.current = setTimeout(() => scrollToRow(index), 60);
+  };
+  useEffect(() => () => clearTimeout(retryRef.current), []);
+
+  const focusCurrentRow = () => {
+    if (!IS_WEB || typeof document === "undefined") return;
+    const el = document.querySelector('[data-toc-current="true"]');
+    try {
+      el?.focus?.({ preventScroll: true });
+    } catch {}
+  };
+
+  // Once, when the list first lays out with a current card and no search.
+  const onListLayout = () => {
+    if (scrolledRef.current || toc.status !== "ready") return;
+    scrolledRef.current = true;
+    if (currentIndex == null || q.trim()) return;
+    requestAnimationFrame(() => {
+      scrollToRow(currentIndex);
+      requestAnimationFrame(focusCurrentRow);
+    });
+  };
+
+  // Search changes: results from the top; cleared → back to the current card.
+  useEffect(() => {
+    const plan = scrollAfterQueryChange(prevQueryRef.current, q, currentIndex);
+    prevQueryRef.current = q;
+    if (!plan) return;
+    if (plan.to === "index") requestAnimationFrame(() => scrollToRow(plan.index));
+    else listRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, [q]);
+
+  // ——— Web: Escape clears the search, then goes back to studying ———
+  const qRef = useRef(q);
+  qRef.current = q;
+  const onEscape = () => {
+    if (qRef.current.trim()) setQ("");
+    else if (navigation.canGoBack()) navigation.goBack();
+  };
+  useEffect(() => {
+    if (!IS_WEB || !isFocused || typeof window === "undefined") return undefined;
+    const onKeyDown = (e) => {
+      if (e.key !== "Escape" || e.defaultPrevented || e.repeat || isModalOpen()) return;
+      e.preventDefault();
+      onEscape();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isFocused, navigation]);
 
   const openAt = (ordinal) => {
     jumpSeq += 1;
@@ -67,8 +152,8 @@ export default function TOCScreen({ route, navigation }) {
     );
   }
 
-  const renderItem = ({ item, index }) => {
-    const ordinal = item.ordinal ?? index + 1;
+  const renderItem = ({ item: row }) => {
+    const { item, ordinal } = row;
     const pageLabel = cardPageLabel(item.page);
     const isCurrent = currentOrdinal != null && Number(currentOrdinal) === ordinal;
     return (
@@ -78,6 +163,7 @@ export default function TOCScreen({ route, navigation }) {
         onPress={() => openAt(ordinal)}
         accessibilityLabel={`Card ${ordinal}, ${pageLabel}${item.section ? `, ${item.section}` : ""}${isCurrent ? ", current card" : ""}: ${item.front}`}
         accessibilityHint="Opens this card"
+        {...(isCurrent && IS_WEB ? { "aria-current": "true", dataSet: { tocCurrent: "true" } } : null)}
       >
         <View style={styles.itemTop}>
           <View style={styles.itemBadges}>
@@ -91,10 +177,6 @@ export default function TOCScreen({ route, navigation }) {
       </Surface>
     );
   };
-
-  const countLine = q.trim()
-    ? `${filtered.length} of ${items.length} cards match`
-    : `${items.length} ${items.length === 1 ? "card" : "cards"} in document order`;
 
   return (
     <SafeAreaView edges={["top", "left", "right"]} style={styles.container}>
@@ -121,17 +203,26 @@ export default function TOCScreen({ route, navigation }) {
             placeholder="Search by section or question…"
             accessibilityLabel="Search cards by section or question"
             style={styles.searchInput}
+            {...(IS_WEB ? { "aria-keyshortcuts": "Escape" } : null)}
+            // The web TextInput stops key events from bubbling to the window
+            // listener above, so the field handles its own Escape.
+            onKeyPress={IS_WEB ? (e) => e.nativeEvent?.key === "Escape" && !e.nativeEvent?.repeat && onEscape() : undefined}
           />
           <Text style={styles.count} accessibilityLiveRegion="polite">
-            {countLine}
+            {tocCountLine(filtered.length, rows.length, q)}
           </Text>
         </View>
       </View>
 
       <FlatList
+        ref={listRef}
         data={filtered}
-        keyExtractor={(it, i) => String(it.id ?? `${it.front}-${i}`)}
+        keyExtractor={(row, i) => String(row.item.id ?? `${row.item.front}-${i}`)}
         renderItem={renderItem}
+        initialNumToRender={initialRenderCount(rows.length, currentIndex)}
+        onLayout={onListLayout}
+        onScrollToIndexFailed={onScrollToIndexFailed}
+        keyboardShouldPersistTaps="handled"
         contentContainerStyle={[styles.list, { paddingHorizontal: gutter }]}
         ListEmptyComponent={
           <Text style={[styles.item, styles.empty]}>No cards match “{q.trim()}”.</Text>

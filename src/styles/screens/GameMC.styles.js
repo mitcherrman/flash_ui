@@ -5,47 +5,57 @@ import { colors, layout, radius, spacing, text, typeScale } from "../../theme";
 export const s = StyleSheet.create({
   // ───────── Containers / common ─────────
   container: { flex: 1, backgroundColor: colors.bg },
+  fill: { flex: 1 },
+  col: { gap: spacing.md },
 
-  // ───────── Top bar ─────────
-  topBar: {
-    height: 48,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  header: { ...text.bodyStrong, fontVariant: ["tabular-nums"] },
-  // Presentational overlay centred across the bar; must never take presses
-  // from the Back/TOC buttons beneath it (pre-F1 bug on web landscape/desktop).
-  counterLandscape: {
-    pointerEvents: "none",
-    ...text.bodyStrong,
-    fontVariant: ["tabular-nums"],
-    position: "absolute",
-    left: 0,
-    right: 0,
-    textAlign: "center",
-  },
-
+  // ───────── Header (StudyHeader inside) ─────────
+  headerWrap: { paddingTop: spacing.md, paddingBottom: spacing.sm, alignItems: "center" },
+  headerWrapShort: { paddingTop: spacing.sm },
   counterBadge: { alignSelf: "center" },
 
   // ───────── Mode toggle ─────────
   modeToggleWrap: { flexDirection: "row", gap: spacing.xs, flexWrap: "wrap", justifyContent: "center", alignSelf: "center" },
 
-  // ───────── Main content layout (card + options) ─────────
-  contentWrap: {
-    flexGrow: 1,
-    paddingHorizontal: spacing.sm,
-    paddingBottom: spacing.sm,
+  // ───────── Phone / tablet: scrolling column + pinned footer ─────────
+  columnScroll: { alignItems: "center", paddingTop: spacing.sm, paddingBottom: spacing.lg },
+  footer: {
+    alignItems: "center",
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    backgroundColor: colors.bg,
   },
 
-  // Question text (inside CardShell)
-  question: { ...text.cardFront, fontSize: 22, lineHeight: 30, textAlign: "center" },
+  // ───────── Short landscape: question column | options column ─────────
+  shortBody: { flex: 1, flexDirection: "row", alignSelf: "center", gap: spacing.lg, paddingBottom: spacing.sm },
+  colScroll: { gap: spacing.sm, paddingBottom: spacing.xs },
+  side: { gap: spacing.xs },
+
+  // ───────── Desktop: centred two-column row ─────────
+  desktopScroll: { flexGrow: 1, alignItems: "center", justifyContent: "center", paddingVertical: spacing.xl },
+  desktopRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.xxl },
+  keyHint: { ...text.muted, textAlign: "center" },
+
+  // Question (inside CardShell); size comes from studyText()
+  faceLabel: {
+    ...typeScale.meta,
+    color: colors.textMuted,
+    textTransform: "uppercase",
+    textAlign: "center",
+    marginTop: spacing.lg,
+  },
+  question: {
+    ...text.cardFront,
+    textAlign: "center",
+    paddingVertical: spacing.md,
+    marginBottom: spacing.sm,
+  },
 
   // Options list
-  optsWrap: { alignItems: "stretch", justifyContent: "flex-start" },
-  opts: { gap: 10, alignSelf: "center", width: "100%" },
+  opts: { gap: spacing.sm, width: "100%" },
   opt: {
-    minHeight: 48,
+    minHeight: layout.touchTarget,
     borderRadius: radius.md,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.lg,
@@ -54,26 +64,31 @@ export const s = StyleSheet.create({
     borderColor: colors.border,
     justifyContent: "center",
   },
+  optShort: { paddingVertical: spacing.sm, paddingHorizontal: spacing.md },
   optHover: { borderColor: colors.borderStrong, backgroundColor: colors.sourceSurface },
   optRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md },
   optLetter: {
     ...typeScale.label,
+    lineHeight: 22,
     color: colors.textMuted,
     minWidth: 18,
     textAlign: "center",
     fontVariant: ["tabular-nums"],
   },
-  optBody: { flex: 1 },
+  optBody: { flex: 1, minWidth: 0 },
   optText: { ...typeScale.body, fontWeight: "500", color: colors.text },
   optTag: { ...typeScale.small, fontWeight: "600", marginTop: spacing.xxs },
 
   // After answering
-  status: { ...text.secondary, textAlign: "center", marginTop: spacing.md, paddingHorizontal: spacing.sm },
-  source: { marginTop: spacing.md },
+  status: { ...text.secondary, textAlign: "center", paddingHorizontal: spacing.sm },
+  statusShort: { ...typeScale.small, color: colors.textSecondary, paddingHorizontal: 0 },
+  source: { width: "100%" },
 
   // Prev / Next buttons
-  controls: { marginTop: 14, alignSelf: "center", flexDirection: "row", gap: spacing.md },
-  navBtn: { minWidth: layout.touchTarget * 2.5 },
+  controls: { alignSelf: "center", flexDirection: "row", justifyContent: "center", gap: spacing.md, maxWidth: "100%" },
+  controlsSide: { alignSelf: "stretch", gap: spacing.sm },
+  controlsUnder: { alignSelf: "stretch" },
+  navBtn: { flexGrow: 1, flexBasis: 0, maxWidth: 220, minWidth: layout.touchTarget * 2 },
 });
 
 // Answer feedback: tinted fill + strong outline; text colour stays readable.

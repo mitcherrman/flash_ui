@@ -1757,3 +1757,268 @@ Each fix was also mutation-checked: removing the excerpt gate, the `step` guard,
 
 - MC waits after a wrong answer and doesn't auto-advance from the last card (§34.7).
 - The Picker re-checks the server on every visit (one small `toc` request).
+
+---
+
+## 35. F4 — Responsive / desktop / input polish
+
+**Workstream:** `FLASH-V2-F4` (2026-10-06). Frontend only, on branch `flashv2/f4-responsive-desktop`, based on `4f0bc09ca55b282223b2075ac7a9d245a7530e2c` (F3). The backend was read only: the certified `b3cc888acbf2bb493f1033384659c0aadc50c967` (checkout `flash-v2-f05-backend`, unmodified; a `git archive` of it ran in scratch). No deployment, no OpenAI calls, no private documents. `master` untouched (`f60dd52`).
+
+Scope: the debt F3 left in §34.15. That covers short-landscape Flip Drill and MC, desktop and tablet composition, web keyboard shortcuts, the TOC current-card position, focus handling, and the web card-count slider. No new product features. No API, cache, navigation-semantics or plan-logic changes.
+
+### 35.1 Files
+
+| File | Change |
+|---|---|
+| `src/theme/breakpoints.js`, `src/theme/tokens.js` | `getLayoutClass(width, height)` (new) and the `layout.shortMaxHeight` / `shortMinWidth` tokens |
+| `src/ui/useLayout.js` | Adds `layoutClass` (the hook F1 asked F4 to extend; no parallel system) |
+| `src/study/layout.js` (new, pure) | Per-class geometry for Flip Drill and MC, readable text sizes, card-fits-text height, swipe threshold and direction |
+| `src/study/shortcuts.js` (new, pure) | Key → action mapping and every guard; the hint text |
+| `src/study/useStudyKeys.js` (new) | Web `keydown` listener, gated on navigator focus; modal detection; focus-recovery helpers |
+| `src/study/tocList.js` (new, pure) | TOC rows, search, current-row index, scroll decisions, first render batch, count line |
+| `src/components/study/StudyHeader.js` (new) | Shared study top bar (Back · counter · actions) in flex regions, without the absolute overlay |
+| `src/components/FlipDrill.js`, `src/Screens/Game2Screen.js`, `src/components/TemplateBar.js` | Four layouts; the card grows to fit its text; keyboard; focus; the bar is in the column, and its sheet opens through a ref from header buttons |
+| `src/Screens/GameMC.js` | Four layouts; no truncation or font shrinking; keyboard; focus. Hover-based `isDesktopWeb` removed |
+| `src/Screens/TOCScreen.js` | Scrolls to the current card; search positioning; Escape; focus on the current row |
+| `src/components/study/TemplateSheet.js` | Centred dialog on tablet/desktop; full-screen sheet on phone/short |
+| `src/components/source/CardCountSlider{,.web}.js` (new), `CardCountControl.js` | Slider decision B (§35.6). `CardCountControl` swaps one element; F2 plan logic untouched |
+| `src/ui/webGlobalStyles.js` | No focus ring on `tabindex=-1` focus targets (controls keep theirs) |
+| study `styles/**` | Layout styles for the above |
+| `tests/{responsive,studyKeys,tocList}.test.mjs` (new) | 46 tests |
+
+### 35.2 Layout classifier
+
+`getLayoutClass(width, height)` uses the window geometry only. `(hover: hover)`, touch and `Platform` are deliberately not inputs (a test asserts this), so a touch laptop or a hover-reporting emulator always gets a layout that fits its window.
+
+| Class | Rule | Matrix members |
+|---|---|---|
+| `short` | landscape, height < 520 and width ≥ 560 | 740×360, 844×390, 896×414; also short desktop windows such as 1280×480 ("constrained desktop height") |
+| `desktop` | width ≥ 1024 (not short) | 1024×768, 1280×720 … 1920×1080, 1024×1366 |
+| `tablet` | 600–1023 | 768×1024 |
+| `phone` | narrower; also landscape windows under 560 wide | 390×844, 360×640, 520×320 |
+
+There is no touch cliff at 1024. Every class keeps the same `Button`s with 44 px targets, swipe works in every class, and 1024×768 (iPad landscape) gets the two-column layout with touch-sized controls. Before F4, GameMC used `width ≥ 1024 || (hover: hover)`, so a 390 px window with a mouse got the desktop branch and a touch laptop the mobile one. That heuristic is gone (tested: no `(hover: hover)` / `isDesktopWeb` left in `src`).
+
+### 35.3 Flip Drill
+
+| Class | Composition |
+|---|---|
+| phone / tablet | Header; a scrolling column (card, then source panel); **Previous/Next pinned** in a footer; the template bar under it, in the column. The card is 72% of its width tall on phones (0.6 on tablets, max 640 wide) |
+| short | Header (Back · counter · **Template** · Contents). Left: the card, filling the measured body height; its column scrolls if the text is longer. Right (220–340 px): the source panel (scrolls on its own), with Previous/Next pinned at the bottom. **No bottom bar**, so nothing covers the card |
+| desktop | Header capped to the content row. A vertically centred row: the card (max 720 px wide, 0.6 aspect, capped to the window height) with Previous/Next and a keyboard hint under it, and the source panel (300–400 px) beside it. Template is a header button |
+
+- **The card grows to fit its text.** Each face measures its text (`onLayout`), and the card height becomes `max(base, text + chrome)` (`flipCardHeight`). Nothing is clipped or font-shrunk. The column scrolls instead, with the controls pinned.
+- **The template bar is no longer an overlay** (`position: absolute` removed; a test guards it). In short and desktop layouts it renders `hidden` (sheet only), and the header **Template** button opens that same sheet via `ref.open()`. The sheet therefore stays mounted in one place across rotations and resizes. There is still exactly one `TemplateSheet` per owner (the F3 structural tests are unchanged and pass).
+- Native landscape now shows the source panel too (F3 hid it there). The old native-only absolute Previous/Next positioning is replaced by the same flex footer on every platform.
+- **Swipe:** a drag becomes a swipe only when it is clearly horizontal (|dx| > 20 and > 1.2·|dy|), so vertical scrolling in the new scroll columns never turns into a card change. The commit distance is a fifth of the card, clamped to 64–120 px: 72 px at 390, about 99 at 844×390, 120 on desktop. A −60 px drag still springs back, as in F3.
+- **Preserved:** tap/click flip, 300 ms flip (instant under reduced motion), haptics, question side on every card change, excerpt hidden until reveal, provenance wording, wrap-around, TOC jump tokens.
+
+### 35.4 Multiple Choice
+
+| Class | Composition |
+|---|---|
+| phone / tablet | Question card (grows), options, status, source after answering, scoring chips in a scrolling column; **Previous/Next pinned** in a footer |
+| short | Left: the question, the source after answering, and scoring, scrolling. Right: the options (scroll if long), then the status line and Previous/Next pinned under them |
+| desktop | Left: the question and, after answering, its source. Right: options, status, Previous/Next, scoring, keyboard hint |
+
+- **Never truncated:** the old `numberOfLines` clamp (1 line in landscape, 2 on desktop, 3 on phones) and `adjustsFontSizeToFit` are removed. Study text never goes below 16 px (`STUDY_TEXT`, tested). The question is 18 px in short landscape and 21–24 px elsewhere.
+- **Options are ≥44 px in every class.** F1's 40 px short-landscape exception is gone: 44 in short, 52 on phone and tablet, 56 on desktop. In short landscape the ✓/✗ still replaces the letter instead of adding a tag line; the accessible label keeps the full wording.
+- **Unchanged F3 semantics:** one answer per visit; correct answers auto-advance once (never from the last card); wrong answers wait for Next; manual Next/Previous wrap; Practice / Keep score; the double-advance guards.
+
+### 35.5 Keyboard shortcuts (web only)
+
+| Screen | Keys |
+|---|---|
+| Flip Drill | **Space / Enter**: flip · **← / →**: previous / next |
+| Multiple Choice | **1–4**: choose that visible option (until answered) · **← / →**: previous / next |
+| TOC | **Escape**: clear the search, or (when it is empty) go back to studying |
+| Template sheet / dialogs | **Escape** closes them (react-native-web Modal, unchanged) |
+
+No `t` for Contents: the set is kept minimal, and every shortcut repeats a visible control.
+
+**Guards** (`studyShortcut`, all tested):
+
+- ignored with Ctrl/⌘/Alt/Shift held (browser and system shortcuts);
+- ignored on auto-repeat (holding a key never machine-guns flips or skips);
+- ignored during IME composition, or when another handler already took the event;
+- ignored while focus is in an input, textarea, select, contenteditable or textbox role;
+- ignored while any `aria-modal` dialog is open, including during its opening animation;
+- Space/Enter on a focused control (button, switch, radio, link, range) activate *that control*, not a flip. For example, Space on Next goes to the next card. Space on the card is the card's own button.
+- Arrows are left to sliders and radios.
+
+**Scope:**
+
+- The listener is active only while the screen is focused in the navigator, because study screens stay mounted under the TOC.
+- RN-web's `TextInput` stops key propagation, so typing in the TOC search can never reach a study shortcut. The search field handles its own Escape.
+- Native registers nothing; no keyboard is required anywhere.
+
+**Discoverability:**
+
+- Desktop shows a muted hint line ("Keyboard: Space to flip · ← → previous / next", "Keyboard: 1–4 to answer · …").
+- The desktop card hint reads "Click the card or press Space to show the answer".
+- Controls carry `aria-keyshortcuts`.
+
+### 35.6 Web card-count slider: decision B
+
+The community Slider renders a non-focusable `View` on web (re-checked: `accessible` adjustable, no tabindex, no key handler). On web, `CardCountSlider.web.js` now renders a native `<input type="range">`:
+
+- focusable, with the global focus ring;
+- ← → ↑ ↓ step one card; Home/End jump to the limits;
+- real slider semantics, with `aria-valuetext` "N cards";
+- `accent-color` theming; touch dragging on mobile browsers.
+
+Native keeps the community Slider in `CardCountSlider.js`. Both files take the same props, a test asserts identical signatures, and both report whole numbers through the same `onChange`. `src/source/plan.js` and the F2 reducer see identical input, and Metro picks the file per platform. Verified in the bundles: web contains `type:"range"` and no `RNCSlider`; Android/iOS contain `RNCSlider` and no range input.
+
+Live (1280×800 and 390×844):
+
+- the analyze result gives 3 cards (3–24);
+- →→ → 5, ← → 4, End → 24, and the Build button label follows;
+- Reset → 3;
+- a track click → 23–24;
+- a section edit disables the input (F2's lock);
+- a full Upload → Build run with a keyboard-chosen 5 cards built deck 5 and saved its resume metadata.
+
+The −/+ buttons are unchanged.
+
+### 35.7 TOC current card
+
+- **Opened from a study screen:** after the list's first layout, the current card is scrolled into view once, **without animation**, 30% down the viewport, so the cards before it stay visible (`scrollToIndex`, `viewPosition 0.3`).
+  - Virtualisation is handled two ways. The first render batch includes the current row (`initialRenderCount`). If a row still isn't measured, `onScrollToIndexFailed` jumps by the average row height and aims again.
+  - On web, focus then moves to the current row, which also carries `aria-current`.
+- **Opened from the Picker (no current card):** the list stays at the top, with the default render batch.
+- **Search:**
+  - typing shows results from the top and never scrolls to the current card;
+  - clearing it (or Escape) returns to the current card, or to the top when there is none;
+  - the "No cards match" state, the count line and the matching rules are as in F3;
+  - filtered rows keep their own ordinal (`tocRows` assigns it before filtering).
+- **Verified live** on a 30-card deck from card 25, at 1280×800, 390×844 and 844×390. The row is in view (y 369 / 375 / 246) and focused. "resp" → 10 of 30, top of the list. Escape → the search is cleared and card 25 is back in view. Escape again → back to the Flip Drill on card 25 with focus on the card. From the Picker → scrollTop 0.
+
+### 35.8 Focus and modals (web)
+
+- **Arrival on a study screen**: from the Picker, or back from a TOC jump or Escape whose row was removed with the TOC. If focus is nowhere useful (body, a removed node, or a hidden screen), it moves to the Flip Drill card or the MC question (`tabIndex -1`, no ring). Verified: after a jump to card 3, `activeElement` is "Question: …card 3".
+- **MC answer:** answering disables the focused option, so focus continues on **Next** instead of dropping to the page (verified: Enter on option B → focus on "Next card").
+- **Flip:** a single target for both faces whose label swaps, so flipping never strands focus.
+- **Template sheet:**
+  - Escape closes it, and the react-native-web Modal returns focus to the element that had it. Verified after Escape: 0 modals, focus back on the card.
+  - Phones and short landscape get a full-screen sheet; tablet and desktop get a **centred dialog** (max 880 px wide, 88% of the window high, over a scrim). Clicking the scrim closes it; the scrim is not a tab stop.
+  - The Close header stays fixed while the content scrolls.
+  - Reduced motion: `animationType="none"`.
+- **Deck error and missing states:** "Try again", "Back to deck", "Back to Upload" and "Forget this deck" are real buttons (tabbable). Verified in view and clickable at every viewport.
+
+### 35.9 Long content
+
+These synthetic cards were seeded directly in the scratch DB:
+
+- an 80-word question;
+- a 90-word answer;
+- an excerpt of about 500 characters;
+- a 180-character section title;
+- long MC distractors;
+- mixed scripts (CJK, Arabic, Greek, Cyrillic, Korean, emoji, maths);
+- a 90-character unbroken identifier;
+- a card with no excerpt.
+
+Results:
+
+- Every card face's text sits inside the card at 390×844, 844×390, 740×360 and 1440×900. The card grows (670 px tall for the long question at 390) and its column scrolls.
+- Previous/Next stay in view and clickable in every case.
+- The unbroken identifier wraps inside the card (no horizontal overflow).
+- MC long options scroll in their column with the controls pinned.
+- Long section titles wrap in the source panel.
+- No text was truncated or shrunk.
+
+### 35.10 Viewport verification matrix
+
+**Setup:**
+
+- the exported web bundle, served statically;
+- the real `b3cc888` backend (Python 3.14 venv);
+- an OpenAI-compatible stub on `OPENAI_BASE_URL` that serves the backend's own `flashcards/tests/fakes.FakeOpenAI`;
+- synthetic decks: an uneven-TOC deck built through `/generate/`, a 30-card deck and the extremes deck seeded in the scratch DB;
+- headless Edge (DevTools protocol, Node's built-in WebSocket) with real input events: key events, mouse drags, touch drags, clicks.
+
+**Screens walked at every viewport:** Picker; Flip Drill question; Flip Drill answer/source; template sheet (+ Escape); TOC; MC unanswered; MC correct (status "Correct. Moving to the next card…"); MC incorrect ("Not quite… Press Next when you're ready."); study error state (network failure → Try again / Back to deck / Back to Upload); missing deck (Back to Upload / Forget this deck).
+
+**Assertion on every screen:** `scrollWidth ≤ clientWidth`, no visible element past the right edge, and every required control of the screen inside the viewport and hit-testable (`elementFromPoint`). The Picker is a scrolling page and is checked for overflow only.
+
+| Viewport | Class | Result |
+|---|---|---|
+| 390×844 (touch) | phone | ✅ all screens |
+| 740×360 (touch) | short | ✅ |
+| 844×390 (touch) | short | ✅. Flip: card 487×322 on the left; source; Previous/Next at y 338. MC: options A–D at 44 px plus controls in view, before and after answering |
+| 844×390 (mouse, reports hover) | short | ✅ same layout (hover-independent) |
+| 896×414 (touch) | short | ✅ |
+| 768×1024 (touch) | tablet | ✅ |
+| 1024×768 (touch) | desktop | ✅ two columns, 44 px targets |
+| 1280×720 / 1280×800 / 1440×900 / 1600×900 / 1920×1080 | desktop | ✅ card + controls + source in view without scrolling; template as a centred dialog |
+
+**Also verified live:**
+
+- Keyboard: Space/Enter flip exactly once; arrows; repeats and Ctrl ignored; Space on Next goes to the next card instead of flipping; MC "2" answers, "3" afterwards and "9" are ignored, and a wrong answer waits.
+- Swipe (mouse at 1280, touch at 390 and 844×390): −60 springs back, −200 → next, +200 → previous, a mostly vertical drag does nothing, and the resting layout has no overflow.
+- Reduced motion: the flip is at 180° 40 ms after the tap.
+- No console errors in any walk; the only warning is the deliberately induced network failure.
+
+**Environment notes:**
+
+- The desktop app's built-in browser pane, while hidden, paints no frames: `requestAnimationFrame` and `ResizeObserver` never fire. As a result, RNW `onLayout`, Modal animations and the focus effects stall there. All layout, measurement and focus claims above come from headless Edge, which renders normally. The pane was used only for early smoke checks.
+- In headless Edge, a touch-emulated click does not open the web file chooser, so the Upload slider walk used mouse input at 390 px.
+
+### 35.11 Native QA status
+
+**Not performed.** There is no Android SDK, emulator or device on this machine, and no macOS for an iOS simulator. Android and iOS `expo export` both bundle (1152 / 1149 modules). The new code uses only RN / safe-area-context primitives:
+
+- web-only behaviour is behind `Platform.OS === "web"` or the `.web.js` file;
+- `aria-keyshortcuts`, `tabIndex` and `dataSet` are passed on web only.
+
+Still **unverified on devices:** native short-landscape composition, safe-area insets on notched phones, haptics, the swipe threshold under real touch, the transparent template dialog on tablets, and native PDF/share. This is not claimed from bundling.
+
+### 35.12 Tests and checks
+
+| Check | Result |
+|---|---|
+| `npm ci` | ✅ |
+| `npm test` | ✅ **195/195** (149 F1–F3 + 46 F4) |
+| `expo export --platform web` / `android` / `ios` | ✅ all exit 0 (web 836 modules: the community slider no longer ships on web; Android 1152; iOS 1149) |
+| `npx expo-doctor@latest` | ⚠️ 16/18: the same two patch-alignment findings as F0–F3 (F5; no Expo versions changed in F4) |
+
+The 46 F4 tests:
+
+- **`responsive` (32):** the class of every matrix viewport and of the edges (constrained desktop height, iPhone SE landscape, tiny landscape, 520 px threshold, square); geometry-only classification; no hover heuristic left in `src`. For each matrix viewport, Flip Drill and MC geometry fit (row ≤ available width, also with notch insets; card 200–720 px; short card under the header; desktop card + controls within the height; options ≥44 px). Also: the 1024 tablet/desktop boundary; the card grows to fit text; text ≥16 px; swipe threshold and direction; vertical drags aren't swipes; the template bar isn't absolutely positioned; the web/native slider share props.
+- **`studyKeys` (8):** the Flip/MC mapping; 1–4 only for visible, unanswered options; the typing guard (input, textarea, select, contenteditable, textbox/searchbox, while range/checkbox are not typing); modifiers, repeat, IME, `defaultPrevented`, open modal; Space/Enter belong to focused controls; arrows belong to sliders and radios; hint text; listeners gated on navigator focus and web.
+- **`tocList` (6):** ordinals; search semantics and filtered ordinals; the current index for card 25 of 30 (beyond the first 10 rendered); the first render batch includes it; the Picker gives no current card; search vs auto-scroll and clear-restores; the count line.
+
+**Mutation-checked:** each of these, removed, makes its test fail — the repeat guard, the typing guard, the control guard, the `short` class, the "search goes to top" rule, card growth, and the horizontal-swipe rule.
+
+### 35.13 Preserved (F1–F3)
+
+- Source hidden until reveal; the question side on every card change; exact / unknown page wording.
+- One MC answer per visit, no double advance, wrong answers wait, correct answers auto-advance, the final card doesn't silently advance.
+- Practice / Keep score; bounded TOC stack (`POP_TO`, unchanged); one template sheet per owner.
+- Truthful export labels and duplex order (untouched); stale/missing deck states and the 20 s timeout (untouched); offline cached study (cache untouched); Game 1 hidden.
+- F2 Upload/Build: only the slider element changed (§35.6). Analyze/build API, recommendation reset, allocations and cancellation are untouched (verified by a live analyze → build).
+
+### 35.14 Remaining debt
+
+**F5 (backend / platform):** everything in §34.15's F5 list, unchanged. In addition:
+
+- Expo patch alignment (Expo Doctor 16/18);
+- `@react-native-community/slider` is now only used natively;
+- `expo-linear-gradient`, reanimated and gesture-handler are still unused.
+
+**F6 (portfolio):**
+
+- The study screens are ready to embed: layout is a pure function of window size (`src/study/layout.js`) and data comes through `useDeck`'s `deckSource`.
+- Re-run the §35.10 matrix against the fixture deck; scripts were scratch-only (headless Edge + DevTools).
+- Lighthouse a11y is still to be measured.
+
+**Still open from §34.15 and not in F4's brief:**
+
+- browser back/forward (no linking config);
+- the native device pass (§35.11).
+
+**Product notes to confirm:**
+
+- Escape on an empty TOC search returns to studying (web).
+- Phone-portrait Flip Drill cards are taller (0.72 aspect) to use the spare height.
+- Tablet and desktop show the study template as a centred dialog rather than a full-screen page.
