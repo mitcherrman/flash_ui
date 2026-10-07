@@ -27,40 +27,16 @@ export default StyleSheet.create({
     borderRadius: radius.md,
   },
   cardBtnTxt: { ...typeScale.label, color: colors.textOnAccent },
+  cardBtnDisabled: { backgroundColor: colors.disabledBg },
+  cardBtnTxtDisabled: { color: colors.disabledText },
+
+  notice: { marginBottom: spacing.xl },
+  sectionLabel: { ...text.heading, marginBottom: spacing.md },
 
   tools: { marginTop: spacing.xl },
   toolRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.md },
+  toolNote: { ...text.muted, marginTop: spacing.md },
 
   devRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.lg },
 
-  // Template modal
-  modalRoot: { flex: 1, backgroundColor: colors.bg },
-  modalTop: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  modalTopInner: {
-    width: "100%",
-    maxWidth: layout.maxWidth.content,
-    alignSelf: "center",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: spacing.md,
-  },
-  modalTitleWrap: { flexShrink: 1 },
-  modalTitle: { ...text.heading },
-  modalSub: { ...text.muted, marginTop: spacing.xxs },
-  modalCenter: { flex: 1, alignItems: "center", justifyContent: "center" },
-  modalScroll: { padding: spacing.lg, paddingBottom: spacing.xxxl, alignItems: "center" },
-  modalColumn: { width: "100%", maxWidth: layout.maxWidth.content, gap: spacing.md },
-  modalEmpty: { ...text.secondary },
-  secCard: {},
-  secTitle: { ...text.bodyStrong },
-  secMeta: { ...text.muted, marginTop: spacing.xxs, marginBottom: spacing.sm },
-  secItem: { ...text.small, color: colors.text, marginBottom: spacing.xs },
-  secMore: { ...text.muted, fontStyle: "italic" },
 });

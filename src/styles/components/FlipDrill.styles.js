@@ -1,6 +1,6 @@
 // src/styles/components/FlipDrill.styles.js
 import { StyleSheet } from "react-native";
-import { colors, radius, spacing, text, typeScale } from "../../theme";
+import { colors, spacing, text, typeScale } from "../../theme";
 
 export default StyleSheet.create({
   // layout roots
@@ -31,27 +31,19 @@ export default StyleSheet.create({
     textAlign: "center",
   },
 
-  ctxLabel: { ...text.small, color: colors.textSecondary, marginRight: spacing.sm },
-
   // text inside CardShell (front/back)
   textFront: { ...text.cardFront, textAlign: "center" },
   textBack: { ...text.cardBack, textAlign: "center" },
-
-  // source / context panel: connected to the card, quieter than the answer
-  infoPanel: {
-    backgroundColor: colors.sourceSurface,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderLeftWidth: 3,
-    borderLeftColor: colors.sourceRule,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
+  // Which side is showing, in words (the colour change is not the only cue)
+  faceLabel: {
+    ...typeScale.meta,
+    color: colors.textMuted,
+    textTransform: "uppercase",
+    marginTop: spacing.lg,
+    textAlign: "center",
   },
-  infoLine: { ...typeScale.small, color: colors.text, marginBottom: spacing.xs },
-  infoKey: { ...typeScale.meta, color: colors.textMuted, textTransform: "uppercase" },
-  infoVal: { ...typeScale.small, fontWeight: "600", color: colors.text },
-  excerpt: { ...text.excerpt },
+  faceLabelBack: { color: colors.highlightText },
+  faceHint: { ...typeScale.small, color: colors.textMuted, marginBottom: spacing.md, textAlign: "center" },
 
   // bottom controls
   navBtn: { minWidth: 112 },

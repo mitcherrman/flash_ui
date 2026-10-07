@@ -103,3 +103,24 @@ export async function loadTemplate(deckId) {
 export async function delTemplate(deckId) {
   try { await AsyncStorage.removeItem(tplKey(deckId)); } catch {}
 }
+
+// ---------- forget one deck (F3: stale / missing deck) ----------
+// Removes everything this device saved for `deckId`: its hand and TOC, its
+// template, and the resume entry if it points at this deck. Other decks'
+// cache is left alone.
+export async function forgetDeck(deckId) {
+  await delCache(deckHandKey(deckId, "doc", "all"));
+  await delCache(deckTocKey(deckId));
+  await delTemplate(deckId);
+  const meta = await loadLastDeck();
+  if (meta && String(meta.deckId) === String(deckId)) {
+    try { await AsyncStorage.removeItem(LAST_DECK_KEY); } catch {}
+  }
+}
+
+// Adapter for src/study/deckApi.js (which takes its store as a parameter).
+export const deckStore = {
+  get: getCache,
+  set: setCache,
+  del: delCache,
+};

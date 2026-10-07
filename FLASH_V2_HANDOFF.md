@@ -1412,3 +1412,348 @@ Verified:
   - server-side cancellation of abandoned generates;
   - the `catch-up "Mixed topics"` fill means `cards_created` can exceed a section's planned count while warnings still list shortfalls (the warnings are the backend's, shown verbatim);
   - Expo patch alignment.
+
+---
+
+## 34. F3 — Study experience
+
+**Workstream:** `FLASH-V2-F3` (2026-10-06). Frontend only, on branch `flashv2/f3-study-experience`, based on `332e020c2510fb78460a36c3b87d9fbb938a18b0` (F2). The backend was read only: the certified `b3cc888acbf2bb493f1033384659c0aadc50c967` (checkout `flash-v2-f05-backend`, unmodified; a `git archive` of it ran in scratch). No deployment, no OpenAI calls, no private documents. `master` untouched (`f60dd52`).
+
+Scope: **Cards → Study**. Picker, Flip Drill, Multiple Choice, source reveal, TOC, study template, study navigation, load/empty/missing/error states, and the export corrections that touch study. Upload, Build, `src/source/*` and the backend were not changed. No new modes; Game 1 stays hidden.
+
+### 34.1 Files
+
+| File | Change |
+|---|---|
+| `src/study/deck.js` (new, pure) | Deck identity (title rules), build-time wording, load-state normalisation, human state copy, stale-hand detection, export file stem |
+| `src/study/deckApi.js` (new, pure) | `hand`/`toc` URLs (contract unchanged), `getJSON` with a 20 s timeout, payload validation, cache-first loading, the Picker's `verifyDeck` |
+| `src/study/provenance.js` (new, pure) | Page labels, section-range wording, the source-reveal rule |
+| `src/study/mc.js` (new, pure) | MC reducer (`step` token), single-timer `createAdvanceTimer`, auto-advance rule, options, option labels, scoring-mode labels |
+| `src/study/tocNav.js` (new, pure) | Navigation actions: TOC jump (`POP_TO`), open TOC, back to deck/Upload |
+| `src/study/template.js` (new, pure) | Rebuilt-outline template (honest pages), counts, range wording |
+| `src/study/printable.js` (new, pure) | Printable cards HTML: duplex page and column order, F1 colours |
+| `src/study/useDeck.js` (new) | React seam: `useDeckHand`, `useDeckToc`, `useDeckCheck`, `useSavedTemplate`, `loadTemplateForViewing`, swappable `deckSource` (for F6) |
+| `src/components/study/{TemplateSheet,SourcePanel,DeckStatus}.js` (new) | The one template viewer; the shared source panel; full-screen states with recovery actions |
+| `src/Screens/{GamePicker,Game2Screen,GameMC,TOCScreen}.js`, `src/components/{FlipDrill,TemplateBar}.js` | Rewired to the modules above |
+| `src/utils/TemplateBus.js` | **Deleted** (global "open template" bus) |
+| `src/utils/cache.js` | Added `forgetDeck(deckId)` and the `deckStore` adapter. Keys, TTL and `VERSION` unchanged |
+| `src/utils/exportHTML.js` | Now only saves/shares; the document comes from `src/study/printable.js` |
+| study `styles/**` + new `SourcePanel.styles.js` | Study styles only |
+| `tests/study{Deck,Provenance,Mc,Nav}.test.mjs` (new) | 66 tests |
+
+Every `src/study/*.js` module except `useDeck.js` imports nothing from React/React Native, so `npm test` drives them directly. They import each other with explicit `.js` extensions, which Metro resolves unchanged.
+
+### 34.2 Picker
+
+- **Identity.** The headline is the document's name:
+  - first the resume metadata saved by Build (`last_deck_meta.name`, only when its `deckId` matches);
+  - then the saved template's `title` (= `deck_name` since F0.5).
+
+  Titles that are server artefacts are rejected: the pre-F0.5 temp stem (`tmpgy0tbwcp`) and `Deck` / `Deck 12`. With no trustworthy title the headline is **"Untitled deck"**; nothing is invented.
+- **Subtitle:** "12 cards · Built in under a second · Deck #2". The id is secondary.
+  - The card count is the server's (from the check). It falls back to the saved count; for a missing deck no count is shown.
+  - Build time uses F2's `formatDuration`: "Built in under a second", "42 seconds", "2 min 05 s". Never `0:00`. The route `buildMs` (fresh build) wins over the saved one.
+- **Header:** a **New deck** button returns to Upload. After Build's `reset`, the Picker is the stack root, so before F3 there was no way back on web.
+- **Modes:** "Flip Drill" and "Multiple Choice" with descriptions of what they actually do. While the deck is being checked, the mode cards read "Checking deck…" and are disabled.
+- **Deck tools:** Table of contents, Study template, and export (§34.11).
+- **Dev tools** (`EXPO_PUBLIC_SHOW_DEV_TOOLS=1`): unchanged, plus "Dev: Print template JSON". The template is no longer logged to the console on every open.
+
+### 34.3 Deck validation: stale and missing decks
+
+The backend can't distinguish "deleted" from "no cards": `hand` and `toc` both return `200 []` for an unknown id. Since `generate_deck` only creates a deck row after cards exist, `[]` in practice means "not on this server".
+
+- **Check before study.** Each Picker visit makes **one** `GET /toc/?deck_id` (never answered from cache). `toc` is the narrowest existing endpoint: AllowAny, with no answers, excerpts or distractors.
+  - **Non-empty:** the result refreshes the toc cache. A cached hand whose card ids (in order) differ from the server's is dropped, which covers a reused id or a rebuilt deck.
+  - **Empty:** the hand and toc caches for that id are dropped.
+- **States:**
+  - `loading`: "Checking deck…".
+  - `ready`.
+  - `missing`: `[]`, and this device has evidence the deck had cards (resume `cardsCount > 0`, or a saved template). Copy: "This saved deck is no longer available — The server has no cards for deck #N. It may have been deleted, or the server's data was reset. The copy saved on this device is out of date."
+  - `empty`: `[]` without such evidence. Copy: "This deck has no cards".
+  - `error`, with a reason:
+    - `network`: "Couldn't reach the flashcard server" (including the 20 s timeout);
+    - `http`: "The server couldn't load this deck", plus "Server response: HTTP n" as secondary text;
+    - `malformed`: "The server sent an unexpected response";
+    - `no-deck`: "No deck selected".
+
+  No server text is shown in the UI; the full error goes to `console.warn`.
+- **Missing or empty:** the modes and tools are hidden. A warning notice offers **Back to Upload** and **Forget this deck**. Forget removes this deck's hand, TOC and template, plus the resume entry if it points at this deck. Other decks' cache is untouched (verified live). Nothing is rebuilt or regenerated automatically.
+- **Network error:** a warning notice with **Try again**. Modes stay enabled with the note "it will use the copy saved on this device, if there is one".
+  - Verified live with the backend stopped: Flip Drill and TOC worked from cache; a deck with no cache showed the study screen's own error with Try again.
+  - After restarting the server, Try again loaded it with one request.
+- **Every study screen** (Flip Drill, MC, TOC) has the same explicit states via `DeckStatus`, and none of them can end in a spinner.
+  - Recovery actions: **Try again** (errors; forces the network), **Back to deck** (errors), **Back to Upload** (always), **Forget this deck** (missing/empty).
+  - A deck deleted *after* the Picker's check reaches "no longer available" in about 100 ms (verified for Flip Drill and MC).
+- **Timeout.** Every study GET gives up after 20 s as a network error, even if the platform's fetch ignores the abort (tested with a never-settling fetch). Unmount aborts the request, and the late result is ignored.
+
+### 34.4 Cache and resume
+
+Precedence (keys, TTL and `VERSION = 2` unchanged; no migration):
+
+| Data | Source order |
+|---|---|
+| hand (`deck:<id>:hand:doc:all`, 6 h) | cached **non-empty** list → server. Shared by Flip Drill, MC, export and the rebuilt template |
+| toc (`deck:<id>:toc`, 6 h) | the Picker always asks the server (and refreshes the cache); the TOC screen uses cache → server |
+| template (`template:<id>`, no TTL) | saved by Build → else an outline rebuilt from the hand (§34.10) |
+| resume (`last_deck_meta`) | written by Build (F2), read by Upload and the Picker |
+
+- **Empty results are never cached any more.** Before F3, `fetchWithCache` stored `[]` for 6 h. A cached `[]` is now ignored and re-fetched.
+- A stale cached hand can no longer mask a missing deck:
+  - the Picker's check drops it;
+  - the study screens never trust a cached `[]`;
+  - a reused id is caught by the card-id comparison.
+- Healthy cache is never cleared: a network failure during the check leaves it alone (tested).
+- `fetchWithCache` stays in `cache.js` for compatibility, but the study screens no longer use it.
+- Request counts observed live: a Picker visit makes 1 `toc` request; the first study screen makes 1 `hand` request. After that, MC, TOC (fresh from the check), template and export make none.
+
+### 34.5 Flip Drill
+
+- **Structure:** question → think → tap to reveal → source → next.
+  - The card faces are labelled "QUESTION" / "ANSWER" in text, with the hints "Tap the card to show the answer" / "Tap to see the question again". The colour change is not the only cue.
+  - Counter: "Card 3 of 10" (a polite live region).
+  - Buttons: **Back** ("Back to deck"), **Contents** ("Table of contents"), **Previous**, **Next**.
+- **Flip target:** a button labelled "Question: …? Show the answer" / "Answer: …. Show the question", with `expanded` state.
+  - The hidden face is `aria-hidden` and hidden from native accessibility.
+  - The back's text isn't rendered at all until the first reveal on that card visit, so the answer isn't in the DOM before reveal (verified).
+- **Card changes always land on the question side, instantly** (Next, Previous, swipe, TOC jump, initial load, resume).
+  - `goTo()` stops the flip animation and sets it to 0 before the new card renders.
+  - Before F3, the flip animated back over 300 ms *with the next card's content*, briefly showing its answer.
+  - Verified live: 16 ms after Next from a flipped card, the answer face is already turned away.
+- **Preserved:** tap to flip; the 300 ms flip (0 under reduced motion); wrap-around; the layout math.
+  - Swipe still uses `PanResponder`: it activates past 20 px and triggers past ±100 px (verified with mouse drags of −300, +300 and −60 px).
+  - Haptics are kept, now guarded so an unsupported platform never rejects.
+  - Swipe handlers now read the latest state through a ref (the old responder was memoised on `cards.length` only).
+  - The spring-back respects reduced motion, and also runs on `onPanResponderTerminate`.
+- **Compatibility fix (§21, web only).** In landscape windows tall enough that the card can stay ≥300 px, the card reserves 360 px below it for the source panel, Previous/Next and the template bar.
+  - Before F3 (baseline measured live at 1280×800), Next sat at y 780–824 under the template bar, and a click on its centre hit the bar. It is now at 664–708 and clickable.
+  - At 1440×900 the card is 524 px tall instead of 540.
+  - Short landscape (844×390) keeps the old rule, so the card is unchanged; that layout remains F4's.
+
+### 34.6 Source reveal and page provenance
+
+- **Reveal rule** (`sourceView`, tested).
+  - Before the learner commits (Flip Drill: first flip on this card visit; MC: an answer), the panel shows only **Section**, **Page**, the context tag, and "The source excerpt appears after you reveal the answer."
+  - The excerpt is the passage the answer came from. With the synthetic deck, the excerpt "…item 1 is token1x1." contains the answer "token1x1".
+  - After the reveal, the excerpt shows as a quotation (clipped at 360 characters) with a "Show source excerpt" switch.
+  - Flipping back to the question keeps the excerpt visible, because the learner has already committed.
+- **Page wording** (`cardPageLabel`, `cardProvenance`):
+  - an exact page → "Page 5";
+  - `null`, or anything that isn't an integer ≥1 → **"Page unknown"**, never page 1;
+  - when the card's page is unknown but its section has a real range in the saved template, the range is added and labelled as the section's: "Page unknown · Section covers pages 1–4";
+  - estimated ranges read "Section covers about pages 3–4";
+  - "Mixed topics" has no range, and rebuilt-outline ranges are never used this way.
+- **Live check** (paraphrase deck from the stub):
+  - TOC rows read "Page 5", "Page 6" and "Page unknown", with unknown pages last and dense ordinals 1–6;
+  - the Cells card reads "Page unknown · Section covers pages 1–4";
+  - "Mixed topics" cards read "Page unknown".
+- **TOC rows:** "Page 5" / "Page unknown" (italic, not bold). The accessible name includes the ordinal, page and section.
+
+### 34.7 Multiple Choice
+
+- **State machine** (`mcReducer`). Idle → answered (first press only) → `auto`, `next`, `prev` or `jump` → idle on the new card.
+  - Every move increments `step`.
+  - `load` resets the score; a TOC `jump` keeps it; switching mode resets it.
+- **Answers:**
+  - Options are buttons named "Option B: text", with the letter shown.
+  - After answering, all options are disabled.
+  - The correct option shows "✓ Correct answer" (or "✓ Correct — your answer"); a wrong pick shows "✗ Your answer — incorrect". The others are muted, with text still ≥4.5:1.
+  - A polite status line reads "Correct. Moving to the next card…" or "Not quite. The correct answer is marked. Press Next when you're ready."
+  - In short landscape the ✓/✗ takes the letter's place, so options keep their baseline height. Accessible labels keep the full wording.
+- **Auto-advance (deliberate product change; confirm with the owner):**
+  - After a **correct** answer it auto-advances (700 ms, as before), except on the **last card**.
+  - After a **wrong** answer the card **waits**, so the correct answer and its source can be read; Next continues.
+  - On the last card the status adds "That was the last card. Next goes back to card 1." Manual Next and Previous still wrap, as before.
+- **Source after answering:** a `SourcePanel` (section, page, excerpt) below the options. In short landscape the status line and source go below the controls, so the controls keep their place.
+- **Scoring labels:** the chips "1"/"2" are now **Practice** ("answers are not counted") and **Keep score** ("counts right and wrong answers on this device"). They moved from the top bar to under the controls, where the descriptive labels fit at 390 px. There are no points or XP, and nothing leaves the device.
+- **Rapid presses:** the first answer wins and is scored once (verified live: three quick presses → 1 wrong).
+
+### 34.8 MC double-advance fix
+
+**Reproduced first.** `studyMc.test.mjs` simulates the old code on a fake clock: on card 2, answer, press Next at 300 ms, timer fires at 700 ms → card 4 (card 3 skipped).
+
+**Fix: two independent guards.**
+
+1. **One timer.** `createAdvanceTimer` keeps **at most one** pending timer.
+   - GameMC schedules it from an effect keyed on `(step, autoAdvance)`, so any position change cancels it in the effect cleanup.
+   - Next, Previous and TOC jumps also cancel it explicitly, as do the navigation `blur` event (TOC opened on top) and unmount.
+2. **Step check.** The timer dispatches `{type: "auto", step}`. The reducer ignores it unless all three hold:
+   - `step` still belongs to the answered card's visit;
+   - the card is answered;
+   - it isn't the last card.
+
+   So even a stale timer that survives cannot move a later card (tested by deliberately not cancelling it).
+
+**Verified live:**
+
+- correct answer → exactly one advance;
+- answer, then Next at 200 ms → one card (2 → 3), still on 3 after 1.5 s;
+- TOC jump during the pending advance → lands on the chosen card, unanswered, with no further move;
+- final card → no wrap.
+
+### 34.9 Feedback endpoint: decision B (left unwired)
+
+`POST /api/flashcards/feedback/` `{right:[ids], wrong:[ids]}` exists in `b3cc888` (`views.py:347`), but:
+
+- it keeps DRF's default `IsAuthenticatedOrReadOnly`, so **anonymous POSTs get 403**, and the app has no accounts or login;
+- `SessionAuthentication` would also require CSRF;
+- the frontend has never called it;
+- the counters would be global per card across every anonymous user;
+- F0 §30 item 14 recommended leaving it unused.
+
+Wiring it would mean either a request that always fails or a backend permission change, which is out of scope. **No request is made.** The MC "Keep score" tally stays on the device. If F5 opens the permission, the natural hook is the reducer's accepted `answer` action: once per answered card, non-blocking.
+
+### 34.10 TOC navigation and template ownership
+
+**Stack growth (verified bug, reproduced first).** The old `navigate(returnTo, …)` pushed a study screen per jump. Driving the real React Navigation 7.4.1 `StackRouter` from `node --test`, 5 jumps produced 12 routes.
+
+- A jump now dispatches **`POP_TO`** (`tocJumpAction`):
+  - if the study screen is below the TOC, the stack pops back to it and replaces its params (same route key, no remount);
+  - if it isn't (the TOC was opened from the Picker), the TOC route is replaced by the study screen.
+- Each jump carries a fresh `jump` token, so jumping again to the ordinal already in the params still moves the card.
+- Router test: 5 open/jump cycles keep `[Picker, Game2]` with the same key, and one Back returns to the Picker.
+- Live: across 5 cycles, exactly one TOC search input and one study screen are mounted at the TOC, and only the study screen remains after each jump. Every jump lands on the requested card, question side up.
+
+**TOC screen:**
+
+- the search is labelled "Search cards by section or question";
+- a live count line reads "12 cards in document order" or "2 of 12 cards match";
+- an empty result reads "No cards match "…"";
+- the current card is marked "Current" (from `currentOrdinal`, passed by the study screen);
+- header buttons: **Back** ("Back to studying"), **Deck** (to the Picker), **Template**.
+
+**Template duplication (verified bug).** The TOC's Template button fired a global `TemplateBus`, so every mounted `TemplateBar` opened a modal: the visible one under Flip Drill, and the TOC's hidden ones.
+
+- The bus is **deleted**. There is one `TemplateSheet` component and one owner per surface:
+  - the Picker owns one;
+  - the Flip Drill's `TemplateBar` owns one, opened by its own button;
+  - the TOC owns one and no longer renders hidden TemplateBars.
+- Tests assert this structurally.
+- Live, with the pane rendering: opening from the Picker, from the bar, and from the TOC over a mounted Flip Drill each gives exactly 1 modal, and one Close gives 0.
+
+**Sheet content:**
+
+- "Study template", the deck title (only when trustworthy) and "3 sections · 18 key points";
+- per section: the title, "Pages 1–4 · 6 points" ("About pages …" for estimated ranges, "Pages unknown" when absent), then each point's question and answer;
+- a rebuilt outline is labelled "Rebuilt from your cards", with ranges as "Cards from pages 2–4". It no longer turns missing pages into page 1, as the pre-F3 Picker fallback did;
+- the slide animation is off under reduced motion, as in `NotifyHost`.
+
+### 34.11 Export / print
+
+- **Labels tell the truth.**
+  - Web has one button, "Download printable cards (HTML)". The duplicate "Export / Share PDF" (which downloaded the same HTML on web) is gone.
+  - Native has "Share printable cards (HTML)" (share sheet, `text/html`) and "Export PDF" (`expo-print` → a real PDF).
+- **Names.** File names and the print title use the deck title (`uneven-toc-cards.html`), else `deck-<id>-cards.html`.
+- **Duplex fixed** (verified bugs, pure tests):
+  - Back rows are mirrored for a long-edge flip, with an empty cell for a short last row.
+  - Pages alternate question sheet / answer sheet. Before F3 all question pages came first, so with more than 6 cards a duplex printer put question sheet 2 on the back of sheet 1.
+  - The instructions block and sheet headings print only on screen, so they never shift the pairing.
+  - Checked on deck 2: sheet 1's back reads token1x2 | token1x1 | token2x1 | token1x3 | …
+- **Styling.** The print CSS uses F1 tokens imported from `src/theme/tokens.js`: white question cards with a teal rule, amber answer cards, ink text, dashed cut lines. Cards carry a small "Question" / "Answer" label. The Berkeley gold `#ffcd00` is gone (tested).
+- **Not verified:** a physical duplex print, and native PDF/share (no device; only the bundles were built).
+
+### 34.12 Accessibility
+
+- **Flip target:** a labelled button with `expanded` state; the hidden face is hidden from assistive tech; the face labels are written out.
+- **MC options:** buttons named "Option A: …" plus the result after answering, with `disabled`/`selected` states and ✓/✗ text, so the result isn't conveyed by colour alone.
+- **Scoring chips:** radios with descriptive labels.
+- **Counters:** polite live regions.
+- **States:** missing, empty and error states use `Notice` (`role=alert`); loading is a `progressbar` with a label.
+- **Labels:** the TOC search is labelled; the template Close button is labelled "Close study template".
+- **Targets:** every control measured ≥44 px at 390, 768 and 1280 (MC options 50–56 px). F1's exception, 40 px MC options in short landscape, is unchanged.
+- **Keyboard:** no new shortcuts (that's F4). Pressables keep Enter/Space activation and the F1 focus ring.
+
+### 34.13 Tests and checks
+
+| Check | Result |
+|---|---|
+| `npm ci` | ✅ |
+| `npm test` | ✅ **149/149** (the 83 F1/F2 tests plus 66 F3 tests) |
+| `expo export --platform web` / `android` / `ios` | ✅ all three exit 0 |
+| `npx expo-doctor@latest` | ⚠️ 16/18: the same two patch-alignment findings as F0–F2 (F5) |
+
+The 66 F3 tests:
+
+- **`studyDeck` (26):**
+  - identity and title rules; "under a second" build time;
+  - load states, and human copy without server text;
+  - the request contract;
+  - cache precedence: a cached hand is used with 0 requests; `[]` is never cached or trusted;
+  - missing-deck validation drops the stale hand; reused ids are caught; a healthy cache is kept; a network failure leaves the cache;
+  - timeout; abort.
+- **`studyProvenance` (11):**
+  - the excerpt is hidden before reveal and shown after; no answer text appears in pre-reveal output;
+  - "Page unknown", never page 1; the section range for unknown pages; "about" for estimated ranges;
+  - an honest rebuilt template.
+- **`studyMc` (17):**
+  - the old skip reproduced; no double advance; a stale timer is ignored;
+  - Previous, jump and unmount cancel; only one timer is ever pending;
+  - rapid answers are scored once; wrong answers wait; the final card doesn't wrap;
+  - options; labels aren't colour-only; scoring labels aren't digits.
+- **`studyNav` (12):**
+  - the old stack growth reproduced in the real `StackRouter`;
+  - 5 cycles stay bounded on the same screen; MC returns to MC; the TOC works when opened from the Picker; the same-ordinal jump token;
+  - no `TemplateBus`; one sheet per owner;
+  - duplex mirroring and page interleaving; F1 colours, no legacy gold; truthful export labels.
+
+Each fix was also mutation-checked: removing the excerpt gate, the `step` guard, `POP_TO`, the row mirroring, or the "never cache `[]`" rule makes its tests fail.
+
+### 34.14 Live verification
+
+**Setup:**
+
+- the exported web bundle, served statically;
+- the real `b3cc888` backend from a `git archive` (Python 3.14 venv);
+- a local OpenAI-compatible stub behind `OPENAI_BASE_URL`, reusing `flashcards/tests/fakes.FakeOpenAI`, with a paraphrase switch;
+- synthetic PDFs only: an uneven TOC (1–4 / 5 / 6) and a 4-page two-section PDF.
+
+**Decks.** They were created through the unchanged `generate` contract. The browser storage was then seeded exactly as Build's `completeBuild` writes it (`last_deck_meta`, `template:<id>`), because the built-in browser can't drive the native file dialog. Covered:
+
+- a normal deck;
+- a warnings-built deck ("Photosynthesis: requested 6, generated 3", plus 3 "Mixed topics" cards with `page = null`);
+- a paraphrased deck (Cells cards with `page = null`);
+- a pre-F0.5-style deck (temp-stem template title) → "Untitled deck";
+- an unknown id → empty;
+- decks deleted from the scratch DB → missing.
+
+**Viewports.** On every screen checked — the Picker, Flip Drill (front and revealed), TOC, the template sheet, and MC (idle and answered) — `scrollWidth == innerWidth` and no element extends past the right edge.
+
+| Viewport | Result |
+|---|---|
+| 390×844 | ✅ No overflow. Flip Drill Next is in view after reveal. MC shows all 4 options and Next before and after answering. Targets ≥44 px |
+| 768×1024 | ✅ No overflow; everything in view |
+| 1280×800 | ✅ No overflow. Flip Drill Next is clear of the template bar (fixed, §34.5). MC in view |
+| 1440×900 | ✅ No overflow. Next at 764–808, above the bar at 848 |
+| 844×390 (smoke) | ✅ No horizontal overflow. Compared live with an untouched `332e020` build: the Flip Drill card is identical and Next sits 30 px *higher* (still below the fold; F4 debt). On MC's touch branch (`(hover: hover)` patched false), option and Next positions are identical before and after answering. Without touch emulation, the emulator takes MC's desktop branch, where the content now scrolls instead of being cut off |
+
+**Environment caveat.** While hidden, the built-in browser pane paints no frames (`requestAnimationFrame` count 0), so CSS animations never end. The template open/close counts were therefore re-verified with the pane visible. For layout measurement only, open sheets were measured with animations disabled.
+
+**Not verified:** native devices; emulated `prefers-reduced-motion` (the code paths are F1's plus `animationType="none"`); a physical print.
+
+### 34.15 Remaining debt
+
+**F4 (responsive / keyboard / device):**
+
+- Short-landscape Flip Drill: at 844×390 the template bar covers the lower card, and Previous/Next sit below the fold. This is unchanged from before, though the source panel is now shorter before reveal.
+- Short-landscape MC: 40 px options and the one-line question clamp.
+- A desktop/tablet two-column study layout.
+- Keyboard shortcuts (←/→, Space, 1–4, Esc).
+- MC's `isDesktopWeb` hover heuristic: a narrow desktop window takes the desktop branch.
+- The TOC list doesn't scroll to the current card (FlatList without `getItemLayout`).
+- Browser back/forward (no linking config).
+- The native device pass: gestures, haptics, PDF/share.
+
+**F5 (backend / platform):**
+
+- The `/feedback/` permission (§34.9).
+- A real "not found" from `hand`/`toc` (today both return `200 []`).
+- `hand?start_ordinal` is still unimplemented (jumps are client-side by design).
+- Deck ids aren't namespaced by API base. A reused id is now detected by card ids, but only when the Picker checks.
+- Expo patch alignment.
+- `fetchWithCache` in `cache.js` can be removed once nothing imports it.
+
+**F6:** `useDeck`'s `deckSource` is the seam for a fixture deck (`loadHand` / `loadToc` / `verifyDeck` / `loadIdentity`). Fixtures must be shaped exactly like the `hand`, `toc` and `template` responses.
+
+**Product decisions to confirm:**
+
+- MC waits after a wrong answer and doesn't auto-advance from the last card (§34.7).
+- The Picker re-checks the server on every visit (one small `toc` request).

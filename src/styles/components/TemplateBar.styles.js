@@ -23,6 +23,7 @@ export default StyleSheet.create({
     justifyContent: "center",
   },
   hint: { ...text.muted, flexShrink: 1 },
+  barText: { flexShrink: 1 },
 
   modalRoot: { flex: 1, backgroundColor: colors.bg },
   modalTop: {
@@ -41,7 +42,11 @@ export default StyleSheet.create({
     justifyContent: "space-between",
     gap: spacing.md,
   },
+  modalTitleWrap: { flexShrink: 1 },
   modalTitle: { ...text.heading, flexShrink: 1 },
+  modalSub: { ...text.muted, marginTop: spacing.xxs },
+  modalCenter: { flex: 1, alignItems: "center", justifyContent: "center" },
+  summary: { ...text.secondary },
   modalScroll: { padding: spacing.lg, paddingBottom: spacing.xxxl, alignItems: "center" },
   modalColumn: { width: "100%", maxWidth: layout.maxWidth.content, gap: spacing.md },
 

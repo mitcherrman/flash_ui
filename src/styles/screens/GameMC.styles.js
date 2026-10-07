@@ -29,7 +29,7 @@ export const s = StyleSheet.create({
   counterBadge: { alignSelf: "center" },
 
   // ───────── Mode toggle ─────────
-  modeToggleWrap: { flexDirection: "row", gap: spacing.xs, flexWrap: "nowrap" },
+  modeToggleWrap: { flexDirection: "row", gap: spacing.xs, flexWrap: "wrap", justifyContent: "center", alignSelf: "center" },
 
   // ───────── Main content layout (card + options) ─────────
   contentWrap: {
@@ -55,7 +55,21 @@ export const s = StyleSheet.create({
     justifyContent: "center",
   },
   optHover: { borderColor: colors.borderStrong, backgroundColor: colors.sourceSurface },
+  optRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md },
+  optLetter: {
+    ...typeScale.label,
+    color: colors.textMuted,
+    minWidth: 18,
+    textAlign: "center",
+    fontVariant: ["tabular-nums"],
+  },
+  optBody: { flex: 1 },
   optText: { ...typeScale.body, fontWeight: "500", color: colors.text },
+  optTag: { ...typeScale.small, fontWeight: "600", marginTop: spacing.xxs },
+
+  // After answering
+  status: { ...text.secondary, textAlign: "center", marginTop: spacing.md, paddingHorizontal: spacing.sm },
+  source: { marginTop: spacing.md },
 
   // Prev / Next buttons
   controls: { marginTop: 14, alignSelf: "center", flexDirection: "row", gap: spacing.md },
@@ -69,4 +83,7 @@ export const stateStyles = StyleSheet.create({
   wrong: { backgroundColor: colors.errorSoft, borderColor: colors.error },
   correctText: { color: colors.success, fontWeight: "600" },
   wrongText: { color: colors.error, fontWeight: "600" },
+  // Options that were neither picked nor correct: quieter, still ≥4.5:1
+  dim: { backgroundColor: colors.surface, borderColor: colors.border },
+  dimText: { color: colors.textSecondary },
 });

@@ -1,44 +1,46 @@
 // src/components/TemplateBar.js
-import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, Modal, ScrollView } from "react-native";
+// Bottom bar under the Flip Drill that opens the study template (F3).
+// It owns its own TemplateSheet; nothing else can open it. (Before F3 every
+// mounted TemplateBar listened to a global bus, so the TOC's Template button
+// opened one modal per mounted bar.)
+import React, { useState } from "react";
+import { Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { loadTemplate } from "../utils/cache";
-import { onTemplateOpen } from "../utils/TemplateBus"; // ⟵ NEW
-import { Button, Surface } from "../ui";
+import { Button } from "../ui";
+import TemplateSheet from "./study/TemplateSheet";
+import { loadTemplateForViewing } from "../study/useDeck";
+import { templateCounts } from "../study/template";
 import s from "../styles/components/TemplateBar.styles";
 
-export default function TemplateBar({ deckId, onHeight, hidden = false }) {
+export default function TemplateBar({ deckId, template = null, deckTitle = null, onHeight, hidden = false }) {
   const [open, setOpen] = useState(false);
-  const [tpl, setTpl] = useState(null);
+  const [shown, setShown] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  // listen for global "open template" requests
-  useEffect(() => {
-    const unsub = onTemplateOpen(() => setOpen(true));
-    return unsub;
-  }, []);
+  const { sections, points } = templateCounts(template);
 
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const data = await loadTemplate(deckId);
-        if (mounted) setTpl(data || null);
-      } catch {
-        if (mounted) setTpl(null);
-      }
-    })();
-    return () => { mounted = false; };
-  }, [deckId]);
-
-  const sectionCount = tpl?.sections?.length || 0;
-  const itemCount = useMemo(() => {
-    if (!tpl?.sections) return 0;
-    return tpl.sections.reduce((acc, s) => acc + (s.items?.length || 0), 0);
-  }, [tpl]);
+  async function openSheet() {
+    setOpen(true);
+    setError("");
+    if (template) {
+      setShown(template);
+      return;
+    }
+    setLoading(true);
+    try {
+      setShown(await loadTemplateForViewing(deckId, deckTitle));
+    } catch (e) {
+      console.warn("[TemplateBar] template unavailable", e);
+      setShown(null);
+      setError("The deck's cards couldn't be loaded to rebuild an outline. Check the connection and try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <>
-      {/* Bottom bar (skip when hidden) */}
       {!hidden && (
         <SafeAreaView
           edges={["bottom", "left", "right"]}
@@ -47,60 +49,27 @@ export default function TemplateBar({ deckId, onHeight, hidden = false }) {
         >
           <View style={s.row}>
             <Button
-              title={`Template ${sectionCount ? `(${sectionCount} sec · ${itemCount} pts)` : ""}`.trim()}
+              title="Study template"
               variant="secondary"
               size="sm"
               accessibilityLabel="Open study template"
-              onPress={() => setOpen(true)}
+              onPress={openSheet}
             />
-
-            {!tpl && (
-              <Text style={s.hint}>
-                No template cached for this deck (build once to populate)
-              </Text>
-            )}
+            <Text style={s.hint} numberOfLines={1}>
+              {sections ? `${sections} ${sections === 1 ? "section" : "sections"} · ${points} key points` : "Outline rebuilt from your cards"}
+            </Text>
           </View>
         </SafeAreaView>
       )}
 
-      {/* Full-screen modal viewer (works even when hidden) */}
-      <Modal visible={open} animationType="slide" onRequestClose={() => setOpen(false)}>
-        <SafeAreaView style={s.modalRoot}>
-          <View style={s.modalTop}>
-            <View style={s.modalTopInner}>
-              <Text accessibilityRole="header" style={s.modalTitle} numberOfLines={2}>
-                {tpl?.title || `Deck ${deckId}`} • Template
-              </Text>
-              <Button title="Close" variant="secondary" size="sm" onPress={() => setOpen(false)} />
-            </View>
-          </View>
-
-          <ScrollView contentContainerStyle={s.modalScroll}>
-            <View style={s.modalColumn}>
-              {tpl?.sections?.length ? (
-                tpl.sections.map((sec, idx) => (
-                  <Surface key={`${idx}-${sec.title}`}>
-                    <Text style={s.secTitle}>{sec.title || "Section"}</Text>
-                    <Text style={s.secMeta}>
-                      Pages {sec.page_start ?? "?"}–{sec.page_end ?? "?"} • {sec.items?.length || 0} points
-                    </Text>
-                    {(sec.items || []).map((it, j) => (
-                      <View key={j} style={s.itemRow}>
-                        <Text style={s.itemTerm}>• {it.term}</Text>
-                        {!!it.definition && <Text style={s.itemDef}>{it.definition}</Text>}
-                      </View>
-                    ))}
-                  </Surface>
-                ))
-              ) : (
-                <Text style={s.noSec}>
-                  No sections available. Build a deck to generate the template.
-                </Text>
-              )}
-            </View>
-          </ScrollView>
-        </SafeAreaView>
-      </Modal>
+      <TemplateSheet
+        visible={open}
+        onClose={() => setOpen(false)}
+        template={shown}
+        loading={loading}
+        error={error}
+        deckTitle={deckTitle}
+      />
     </>
   );
 }

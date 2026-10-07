@@ -1,52 +1,50 @@
 // src/Screens/Game2Screen.js
-import React, { useRef, useState, useEffect } from "react";
+// Flip Drill screen: loads the deck (explicit loading / empty / missing /
+// error states, never an endless spinner), then renders FlipDrill and the
+// TemplateBar, which owns the one template sheet on this screen.
+import React from "react";
 import { View, StyleSheet, useWindowDimensions, Platform } from "react-native";
 import FlipDrill from "../components/FlipDrill";
 import TemplateBar from "../components/TemplateBar";
+import DeckStatus from "../components/study/DeckStatus";
+import { useDeckHand, useSavedTemplate } from "../study/useDeck";
 import { colors } from "../theme";
 
 export default function Game2Screen({ route, navigation }) {
   const deckId       = route.params?.deckId;
-  const mode         = route.params?.mode ?? "basic";
-  const n            = route.params?.n ?? "all";
-  const order        = route.params?.order ?? "doc";
   const startOrdinal = route.params?.startOrdinal ?? null;
+  const jump         = route.params?.jump ?? null;
+
+  const deck = useDeckHand(deckId);
+  const template = useSavedTemplate(deckId);
 
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
   // Hide the TemplateBar only on native (iOS/Android) landscape; keep it on web
   const hideTemplateBar = (Platform.OS !== "web") && isLandscape;
 
-  // Height of the fixed bottom Template bar
-  const [barH, setBarH] = useState(0);
-  const drillRef = useRef(null);
-
-  // Whenever we hide the bar, force its height to 0 so content lifts correctly
-  useEffect(() => {
-    if (hideTemplateBar) setBarH(0);
-  }, [hideTemplateBar]);
-
-  if (!deckId) {
-    return <View style={styles.container} />;
+  if (deck.status !== "ready") {
+    return <DeckStatus state={deck} deckId={deckId} navigation={navigation} />;
   }
 
   return (
     <View style={styles.container}>
-      {/* Main drill; pass navigation + bottom inset so controls lift */}
       <FlipDrill
-        ref={drillRef}
         deckId={deckId}
-        mode={mode}
-        n={n}
-        order={order}
+        cards={deck.items}
+        template={template}
         startOrdinal={startOrdinal}
+        jump={jump}
         navigation={navigation}
-        // If the bar is hidden, inset is 0; otherwise use measured bar height
-        contentInsetBottom={hideTemplateBar ? 0 : barH}
       />
 
       {/* Fixed bottom Template bar (hidden in native landscape) */}
-      <TemplateBar deckId={deckId} hidden={hideTemplateBar} onHeight={setBarH} />
+      <TemplateBar
+        deckId={deckId}
+        template={template}
+        deckTitle={template?.title ?? null}
+        hidden={hideTemplateBar}
+      />
     </View>
   );
 }

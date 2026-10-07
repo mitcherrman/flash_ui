@@ -1,132 +1,52 @@
 // src/Screens/GamePicker.js
 //
-// Study-mode selection screen
-// + Export: web → HTML download (printable cut-out cards)
-//           native → PDF share via expo-print
-
-import React, { useEffect, useState } from "react";
-import { View, Text, ScrollView, Platform, Modal, ActivityIndicator } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+// The deck's home (F3): what the deck is, whether the server still has it,
+// and the ways to study it.
+//   • Identity: the document's name (resume metadata, else the saved
+//     template's title); "Untitled deck" when neither is known. The numeric
+//     id is secondary.
+//   • Before study, the server is asked whether the deck still exists
+//     (GET toc). A deck it no longer has can't strand the learner in a study
+//     screen: it gets "no longer available", Back to Upload and Forget.
+//   • Export: web downloads printable cards as HTML; native shares that HTML
+//     or renders a real PDF. Labels say which.
+import React, { useState } from "react";
+import { View, Text, Platform } from "react-native";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system";
-import { API_BASE } from "../config";
 import { deckToPrintableHTML, saveHTML } from "../utils/exportHTML";
-import {
-  clearAllCache,
-  delCache,
-  deckHandKey,
-  deckTocKey,
-  loadLastDeck,
-  loadTemplate,           // ← NEW
-} from "../utils/cache";
-import { colors } from "../theme";
-import { Button, MetaLabel, PageHeader, Screen, Surface, notify } from "../ui";
+import { clearAllCache, delCache, deckHandKey, deckTocKey, forgetDeck } from "../utils/cache";
+import TemplateSheet from "../components/study/TemplateSheet";
+import { deckSource, loadTemplateForViewing, useDeckCheck } from "../study/useDeck";
+import { deckSubtitle, describeDeckState, exportStem } from "../study/deck";
+import { backToUploadAction, studyParams } from "../study/tocNav";
+import { Button, MetaLabel, Notice, PageHeader, Screen, StatusView, Surface, notify } from "../ui";
 import styles from "../styles/screens/GamePicker.styles";
-
-const API_ROOT = `${API_BASE}/api/flashcards`;
 
 // Developer-only controls (cache clearing, raw template JSON) are hidden from
 // the normal UI. Set EXPO_PUBLIC_SHOW_DEV_TOOLS=1 (e.g. in .env.local) to show them.
 const SHOW_DEV_TOOLS = process.env.EXPO_PUBLIC_SHOW_DEV_TOOLS === "1";
-
-function formatMs(ms) {
-  const s = Math.max(0, Math.floor((ms || 0) / 1000));
-  const m = Math.floor(s / 60);
-  const ss = String(s % 60).padStart(2, "0");
-  return `${m}:${ss}`;
-}
-
-// Build a readable "template-like" object from cards if we don't have a saved template
-function buildTemplateFromCards(cards = [], title = "Deck") {
-  const bySection = new Map();
-  for (const c of cards) {
-    const sec = (c.section || "(No section)").trim();
-    if (!bySection.has(sec)) bySection.set(sec, []);
-    bySection.get(sec).push(c);
-  }
-
-  const sections = [];
-  const toc = [];
-  let ordinal = 1;
-
-  for (const [secTitle, arr] of bySection.entries()) {
-    // doc order: page asc, then original order if present
-    arr.sort((a, b) => {
-      const pa = Number.isFinite(a.page) ? a.page : 10 ** 9;
-      const pb = Number.isFinite(b.page) ? b.page : 10 ** 9;
-      if (pa !== pb) return pa - pb;
-      return 0;
-    });
-
-    const pages = arr.map((x) => (Number.isFinite(x.page) ? x.page : null)).filter((x) => x != null);
-    const ps = pages.length ? Math.min(...pages) : 1;
-    const pe = pages.length ? Math.max(...pages) : ps;
-
-    const firstOrd = ordinal;
-    const items = arr.map((c) => {
-      const term = (c.front || "").trim();
-      const definition = (c.back || "").trim();
-      const page = Number.isFinite(c.page) ? c.page : ps;
-      const line = `${term}: ${definition}`;
-      const item = {
-        type: "concept",
-        term,
-        definition,
-        source_excerpt: line,
-        page,
-        ordinal,
-      };
-      ordinal += 1;
-      return item;
-    });
-
-    sections.push({
-      title: secTitle || "Section",
-      page_start: ps,
-      page_end: pe,
-      items,
-    });
-
-    toc.push({
-      title: secTitle || "Section",
-      page_start: ps,
-      page_end: pe,
-      ordinal_first: firstOrd,
-    });
-  }
-
-  return {
-    version: "study-template/reconstructed-v1",
-    title,
-    pages: null,
-    sections,
-    toc,
-  };
-}
+const IS_WEB = Platform.OS === "web";
 
 export default function GamePicker({ route, navigation }) {
   const { deckId, buildMs: buildMsFromNav } = route.params || {};
-  const [busy, setBusy] = useState(false);
-  const [buildMs, setBuildMs] = useState(
-    typeof buildMsFromNav === "number" ? buildMsFromNav : null
-  );
+  const check = useDeckCheck(deckId, typeof buildMsFromNav === "number" ? buildMsFromNav : null);
+  const { identity } = check;
+  const [busy, setBusy] = useState(null); // "html" | "pdf" | null
 
-  // Template modal state
+  // Template sheet (one owner: this screen)
   const [showTpl, setShowTpl] = useState(false);
   const [tplLoading, setTplLoading] = useState(false);
   const [template, setTemplate] = useState(null);
+  const [tplError, setTplError] = useState("");
 
-  // If we came here from a cold start (resume), read cached meta to get build time
-  useEffect(() => {
-    (async () => {
-      if (buildMs != null) return;
-      const meta = await loadLastDeck();
-      if (meta?.deckId === deckId && typeof meta.buildMs === "number") {
-        setBuildMs(meta.buildMs);
-      }
-    })();
-  }, [deckId, buildMs]);
+  const toUpload = () => navigation.dispatch(backToUploadAction());
+
+  async function forget() {
+    await forgetDeck(deckId);
+    toUpload();
+  }
 
   async function clearDeckCache() {
     await delCache(deckHandKey(deckId, "doc", "all"));
@@ -138,87 +58,84 @@ export default function GamePicker({ route, navigation }) {
     notify("Cache", "Cleared ALL cached decks/TOCs.");
   }
 
-  async function fetchCardsDocOrder(id) {
-    const params = new URLSearchParams();
-    params.set("deck_id", String(id));
-    params.set("n", "all");
-    params.set("order", "doc");
-    const r = await fetch(`${API_ROOT}/hand/?${params.toString()}`);
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    return r.json();
+  async function deckCards() {
+    const { items } = await deckSource.loadHand(deckId);
+    if (!items.length) throw new Error("This deck has no cards to export.");
+    return items;
   }
 
-  // Web-friendly: downloads an .html you can print (duplex, flip long edge)
-  async function downloadPrintable() {
+  // Printable HTML: a download on web, the share sheet on native.
+  async function exportHTMLCards() {
     try {
-      const cards = await fetchCardsDocOrder(deckId);
-      const html = deckToPrintableHTML({ deckName: `Deck ${deckId}`, cards });
-      await saveHTML({ html, filename: `deck-${deckId}-print.html` });
+      setBusy("html");
+      const cards = await deckCards();
+      const html = deckToPrintableHTML({ deckName: identity.displayTitle, cards });
+      await saveHTML({ html, filename: `${exportStem({ title: identity.title, deckId })}-cards.html` });
     } catch (e) {
       console.error(e);
-      notify("Export failed", String(e));
-    }
-  }
-
-  // Native-friendly: renders the same HTML to a PDF and opens share sheet
-  async function exportDeck() {
-    try {
-      setBusy(true);
-      const cards = await fetchCardsDocOrder(deckId);
-      const deckName = `Deck ${deckId}`;
-      const html = deckToPrintableHTML({ deckName, cards });
-
-      if (Platform.OS === "web") {
-        await saveHTML({ html, filename: `deck-${deckId}-print.html` });
-      } else {
-        const { uri } = await Print.printToFileAsync({ html });
-        const dest = `${FileSystem.documentDirectory}${deckName.replace(/\s+/g, "_")}.pdf`;
-        await FileSystem.moveAsync({ from: uri, to: dest });
-
-        const canShare = await Sharing.isAvailableAsync();
-        if (canShare) {
-          await Sharing.shareAsync(dest, { mimeType: "application/pdf" });
-        } else {
-          notify("Exported", `Saved PDF to:\n${dest}`);
-        }
-      }
-    } catch (e) {
-      console.error(e);
-      notify("Export failed", String(e).slice(0, 280));
+      notify("Export failed", e?.message ? String(e.message).slice(0, 280) : "The printable cards couldn't be created.");
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
-  // ---- NEW: Template viewer ----
-  async function onViewTemplate() {
+  // Native only: the same document rendered to a real PDF by expo-print.
+  async function exportPDF() {
     try {
-      setTplLoading(true);
-      // 1) Try local cached template (saved by BuildScreen if backend returned one)
-      let tpl = await loadTemplate(deckId);
+      setBusy("pdf");
+      const cards = await deckCards();
+      const html = deckToPrintableHTML({ deckName: identity.displayTitle, cards });
+      const { uri } = await Print.printToFileAsync({ html });
+      const dest = `${FileSystem.documentDirectory}${exportStem({ title: identity.title, deckId })}.pdf`;
+      await FileSystem.moveAsync({ from: uri, to: dest });
 
-      // 2) Fallback: reconstruct from cards if none cached
-      if (!tpl) {
-        const cards = await fetchCardsDocOrder(deckId);
-        if (!cards?.length) {
-          notify("Template", "No template found and unable to reconstruct from cards.");
-          return;
-        }
-        tpl = buildTemplateFromCards(cards, `Deck ${deckId}`);
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(dest, { mimeType: "application/pdf" });
+      } else {
+        notify("Exported", `Saved PDF to:\n${dest}`);
       }
-
-      setTemplate(tpl);
-      // Print pretty JSON to console for quick dev inspection
-      try { console.log("Template for deck", deckId, JSON.stringify(tpl, null, 2)); } catch {}
-
-      setShowTpl(true);
     } catch (e) {
       console.error(e);
-      notify("Template error", String(e).slice(0, 280));
+      notify("Export failed", e?.message ? String(e.message).slice(0, 280) : "The PDF couldn't be created.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onViewTemplate() {
+    setShowTpl(true);
+    setTplError("");
+    setTplLoading(true);
+    try {
+      setTemplate(await loadTemplateForViewing(deckId, identity.title));
+    } catch (e) {
+      console.error(e);
+      setTemplate(null);
+      setTplError("The deck's cards couldn't be loaded to rebuild an outline. Check the connection and try again.");
     } finally {
       setTplLoading(false);
     }
   }
+
+  if (check.status === "error" && check.reason === "no-deck") {
+    const copy = describeDeckState(check);
+    return (
+      <StatusView
+        tone="error"
+        title={copy.title}
+        message={copy.message}
+        action={<Button title="Back to Upload" size="sm" onPress={toUpload} />}
+      />
+    );
+  }
+
+  const checking = check.status === "loading";
+  const gone = check.status === "missing" || check.status === "empty";
+  const offline = check.status === "error";
+  const cardCount = check.status === "ready" ? check.items.length : null;
+  const studyDisabled = checking || gone || !!busy;
+  const problem = gone || offline ? describeDeckState(check, { deckId }) : null;
 
   // Mode card: the whole surface is the button; "Start" is its visual affordance.
   const Card = ({ title, subtitle, onPress }) => (
@@ -227,13 +144,15 @@ export default function GamePicker({ route, navigation }) {
       padding="xl"
       style={styles.card}
       onPress={onPress}
-      disabled={busy}
+      disabled={studyDisabled}
       accessibilityLabel={`${title}. ${subtitle}`}
     >
       <Text style={styles.cardTitle}>{title}</Text>
       {!!subtitle && <Text style={styles.cardSub}>{subtitle}</Text>}
-      <View style={styles.cardBtn}>
-        <Text style={styles.cardBtnTxt}>{busy ? "Working…" : "Start"}</Text>
+      <View style={[styles.cardBtn, studyDisabled && styles.cardBtnDisabled]}>
+        <Text style={[styles.cardBtnTxt, studyDisabled && styles.cardBtnTxtDisabled]}>
+          {checking ? "Checking deck…" : busy ? "Working…" : "Start"}
+        </Text>
       </View>
     </Surface>
   );
@@ -241,128 +160,132 @@ export default function GamePicker({ route, navigation }) {
   return (
     <Screen scroll maxWidth="content">
       <PageHeader
-        title="Choose a study mode"
-        subtitle={`Deck #${deckId}${buildMs != null ? ` • built in ${formatMs(buildMs)}` : ""}`}
+        left={<Button title="New deck" variant="secondary" size="sm" accessibilityLabel="Back to Upload to make a new deck" onPress={toUpload} />}
+        eyebrow={<MetaLabel>Your deck</MetaLabel>}
+        title={identity.displayTitle}
+        subtitle={deckSubtitle(gone ? { ...identity, cardsCount: null } : identity, cardCount)}
       />
 
-      {/* "Game 1 — Curate" (route Game1) is a verified placeholder with no
-          functionality; it is hidden from the picker until it exists. */}
-      <View style={styles.grid}>
-        <Card
-          title="Flip Drill"
-          subtitle="Flip each card to check your answer, with its source section and page."
-          onPress={() =>
-            navigation.navigate("Game2", { deckId, mode: "basic", order: "doc" })
+      {gone && (
+        <Notice
+          tone="warning"
+          title={problem.title}
+          message={problem.message}
+          style={styles.notice}
+          action={
+            <>
+              <Button title="Back to Upload" size="sm" onPress={toUpload} />
+              <Button
+                title="Forget this deck"
+                size="sm"
+                variant="secondary"
+                accessibilityHint="Removes this deck's saved copy and resume entry from this device"
+                onPress={forget}
+              />
+            </>
           }
         />
-        <Card
-          title="Multiple Choice"
-          subtitle="Pick the right answer from a set of options."
-          onPress={() =>
-            navigation.navigate("GameMC", { deckId, mode: "mc", order: "doc" })
-          }
-        />
-      </View>
+      )}
 
-      <Surface style={styles.tools}>
-        <MetaLabel>Deck tools</MetaLabel>
-        <View style={styles.toolRow}>
-          <Button
-            title="Open Table of Contents"
-            variant="secondary"
-            onPress={() =>
-              navigation.navigate("TOC", { deckId, returnTo: "Game2", mode: "basic" })
-            }
-          />
-          <Button
-            title={tplLoading ? "Loading template…" : "View study template"}
-            variant="secondary"
-            onPress={onViewTemplate}
-            disabled={tplLoading}
-          />
-          <Button
-            title="Download printable cards (HTML)"
-            variant="secondary"
-            onPress={downloadPrintable}
-            disabled={busy}
-          />
-          <Button
-            title={busy ? "Preparing export…" : "Export / Share PDF"}
-            variant="secondary"
-            onPress={exportDeck}
-            disabled={busy}
-            loading={busy}
-          />
-        </View>
-      </Surface>
+      {offline && (
+        <Notice
+          tone="warning"
+          title={problem.title}
+          message={`${problem.message} You can still try a study mode: it will use the copy saved on this device, if there is one.`}
+          style={styles.notice}
+          action={<Button title="Try again" size="sm" variant="secondary" onPress={check.retry} />}
+        />
+      )}
+
+      {!gone && (
+        <>
+          <Text style={styles.sectionLabel} accessibilityRole="header">
+            Choose a study mode
+          </Text>
+          {/* "Game 1 — Curate" (route Game1) is a verified placeholder with no
+              functionality; it is hidden from the picker until it exists. */}
+          <View style={styles.grid}>
+            <Card
+              title="Flip Drill"
+              subtitle="Read the question, think of the answer, then flip the card to check it against its source."
+              onPress={() => navigation.navigate("Game2", studyParams({ route: "Game2", deckId }))}
+            />
+            <Card
+              title="Multiple Choice"
+              subtitle="Pick the answer from four options, then see where it comes from in the document."
+              onPress={() => navigation.navigate("GameMC", studyParams({ route: "GameMC", deckId }))}
+            />
+          </View>
+
+          <Surface style={styles.tools}>
+            <MetaLabel>Deck tools</MetaLabel>
+            <View style={styles.toolRow}>
+              <Button
+                title="Table of contents"
+                variant="secondary"
+                onPress={() => navigation.navigate("TOC", { deckId, returnTo: "Game2" })}
+                disabled={checking}
+              />
+              <Button
+                title={tplLoading ? "Loading template…" : "Study template"}
+                variant="secondary"
+                onPress={onViewTemplate}
+                disabled={tplLoading}
+              />
+              <Button
+                title={
+                  busy === "html"
+                    ? "Preparing cards…"
+                    : IS_WEB
+                    ? "Download printable cards (HTML)"
+                    : "Share printable cards (HTML)"
+                }
+                variant="secondary"
+                onPress={exportHTMLCards}
+                disabled={!!busy || checking}
+                loading={busy === "html"}
+              />
+              {!IS_WEB && (
+                <Button
+                  title={busy === "pdf" ? "Preparing PDF…" : "Export PDF"}
+                  variant="secondary"
+                  onPress={exportPDF}
+                  disabled={!!busy || checking}
+                  loading={busy === "pdf"}
+                />
+              )}
+            </View>
+            <Text style={styles.toolNote}>
+              Printable cards are laid out for double-sided printing (flip on the long edge), six per sheet.
+            </Text>
+          </Surface>
+        </>
+      )}
 
       {SHOW_DEV_TOOLS && (
         <View style={styles.devRow}>
           <Button title="Dev: Clear cache (this deck)" variant="quiet" size="sm" onPress={clearDeckCache} />
           <Button title="Dev: Clear ALL cache" variant="quiet" size="sm" onPress={clearAll} />
+          <Button
+            title="Dev: Print template JSON"
+            variant="quiet"
+            size="sm"
+            onPress={() => {
+              try { console.log("Template JSON", JSON.stringify(check.template ?? template, null, 2)); } catch {}
+              notify("Template", "Printed full JSON to the console.");
+            }}
+          />
         </View>
       )}
 
-      {/* Template Modal */}
-      <Modal visible={showTpl} animationType="slide" onRequestClose={() => setShowTpl(false)}>
-        <SafeAreaView style={styles.modalRoot}>
-          <View style={styles.modalTop}>
-            <View style={styles.modalTopInner}>
-              <View style={styles.modalTitleWrap}>
-                <Text accessibilityRole="header" style={styles.modalTitle}>Study Template</Text>
-                <Text style={styles.modalSub}>Deck #{deckId}</Text>
-              </View>
-              <Button title="Close" variant="secondary" size="sm" onPress={() => setShowTpl(false)} />
-            </View>
-          </View>
-
-          {tplLoading ? (
-            <View style={styles.modalCenter}>
-              <ActivityIndicator size="large" color={colors.accent} />
-            </View>
-          ) : (
-            <ScrollView contentContainerStyle={styles.modalScroll}>
-              <View style={styles.modalColumn}>
-                {!template ? (
-                  <Text style={styles.modalEmpty}>No template available.</Text>
-                ) : (
-                  <>
-                    {(template.sections || []).map((sec, i) => (
-                      <Surface key={`${i}-${sec.title}`} style={styles.secCard}>
-                        <Text style={styles.secTitle}>{sec.title || "Section"}</Text>
-                        <Text style={styles.secMeta}>
-                          {`p.${sec.page_start ?? "?"}${sec.page_end && sec.page_end !== sec.page_start ? `–${sec.page_end}` : ""}`}
-                        </Text>
-                        {(sec.items || []).slice(0, 8).map((it, j) => (
-                          <Text key={j} style={styles.secItem}>
-                            {it.term ? `• ${it.term}` : "•"}{it.definition ? `: ${it.definition}` : ""}
-                          </Text>
-                        ))}
-                        {(sec.items || []).length > 8 ? (
-                          <Text style={styles.secMore}>
-                            …and {(sec.items || []).length - 8} more
-                          </Text>
-                        ) : null}
-                      </Surface>
-                    ))}
-                    {SHOW_DEV_TOOLS && (
-                      <Button
-                        title="Print full JSON to console"
-                        variant="quiet"
-                        size="sm"
-                        onPress={() => {
-                          try { console.log("Template JSON", JSON.stringify(template, null, 2)); } catch {}
-                          notify("Template", "Printed full JSON to the console.");
-                        }}
-                      />
-                    )}
-                  </>
-                )}
-              </View>
-            </ScrollView>
-          )}
-        </SafeAreaView>
-      </Modal>
+      <TemplateSheet
+        visible={showTpl}
+        onClose={() => setShowTpl(false)}
+        template={template}
+        loading={tplLoading}
+        error={tplError}
+        deckTitle={identity.title}
+      />
     </Screen>
   );
 }

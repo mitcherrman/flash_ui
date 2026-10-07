@@ -1,22 +1,50 @@
 // src/Screens/GameMC.js
-import React, { useEffect, useMemo, useState } from "react";
+// Multiple Choice (F3).
+//
+// State lives in the pure mcReducer (src/study/mc.js): one accepted answer
+// per card visit, score counted once, and a `step` token on every move.
+// Auto-advance (correct answers only, never past the last card) is scheduled
+// by an effect keyed on that step, so Next/Previous/TOC jump/unmount/leaving
+// the screen cancel it, and a late timer is ignored by the reducer anyway.
+// After answering, the card's source (section, page, excerpt) is shown.
+import React, { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   View,
   Text,
   Pressable,
   Platform,
+  ScrollView,
 } from "react-native";
 import { useWindowDimensions } from "react-native";
 import { useSafeAreaInsets, SafeAreaView } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
-import { API_BASE } from "../config";
 import CardShell from "../components/CardShell";
+import SourcePanel from "../components/study/SourcePanel";
+import DeckStatus from "../components/study/DeckStatus";
 import { pickDistractors, shuffle } from "../utils/PickDistractors";
-import { fetchWithCache, deckHandKey } from "../utils/cache";
+import { useDeckHand, useSavedTemplate } from "../study/useDeck";
+import { indexForOrdinal } from "../study/deck";
+import {
+  OPTION_LETTERS,
+  SCORE_MODES,
+  buildOptions,
+  createAdvanceTimer,
+  initialMcState,
+  isLastCard,
+  mcReducer,
+  optionLabel,
+  optionState,
+  shouldAutoAdvance,
+} from "../study/mc";
+import { backToPickerAction, openTocAction } from "../study/tocNav";
 import { Badge, Button, Chip, ChipGroup, StatusView } from "../ui";
 import { s, stateStyles } from "../styles/screens/GameMC.styles";
 
-const API_ROOT = `${API_BASE}/api/flashcards`;
+const tick = () => {
+  try {
+    Haptics.selectionAsync()?.catch?.(() => {});
+  } catch {}
+};
 
 export default function GameMC({ route, navigation }) {
   const { width, height } = useWindowDimensions();
@@ -31,6 +59,7 @@ export default function GameMC({ route, navigation }) {
     window.matchMedia &&
     window.matchMedia("(hover: hover)").matches;
   const isDesktopWeb = isWeb && (width >= 1024 || canHover);
+  const shortLandscape = isLandscape && !isDesktopWeb;
 
   // sizes — desktop gets larger canvas + card
   const CONTENT_MAX_W = isDesktopWeb
@@ -48,149 +77,120 @@ export default function GameMC({ route, navigation }) {
     ? Math.max(70, Math.min(110, Math.floor(height * 0.12)))
     : Math.floor(CARD_W * 0.6);
 
-  const { deckId, order = "doc", startOrdinal = null } = route.params || {};
+  const { deckId, startOrdinal = null, jump = null } = route.params || {};
+  const deck = useDeckHand(deckId);
+  const template = useSavedTemplate(deckId);
+  const cards = deck.items;
 
-  const [cards, setCards] = useState([]);
-  const [idx, setIdx] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState("");
-
-  const [options, setOptions] = useState([]);
-  const [picked, setPicked] = useState(null);
-  const [correctIndex, setCorrectIndex] = useState(null);
-
-  // modes
+  const [mc, dispatch] = useReducer(mcReducer, undefined, initialMcState);
   const [gameMode, setGameMode] = useState("normal");
-  const [rightCount, setRightCount] = useState(0);
-  const [wrongCount, setWrongCount] = useState(0);
+  const [showSource, setShowSource] = useState(true);
 
-  const startOrdinalNum = useMemo(() => {
-    const v =
-      typeof startOrdinal === "number"
-        ? startOrdinal
-        : startOrdinal != null
-        ? parseInt(String(startOrdinal), 10)
-        : null;
-    return Number.isFinite(v) && v > 0 ? v : null;
-  }, [startOrdinal]);
+  const timerRef = useRef(null);
+  if (!timerRef.current) timerRef.current = createAdvanceTimer();
+  const timer = timerRef.current;
 
-  function goToPicker() {
-    navigation.reset({ index: 0, routes: [{ name: "Picker", params: { deckId } }] });
-  }
-
+  // ——— Initial load / resume (score resets) and TOC jumps (score kept) ———
+  const loadedRef = useRef(null);
   useEffect(() => {
-    (async () => {
-      try {
-        setLoading(true);
-        const params = new URLSearchParams();
-        params.set("deck_id", String(deckId));
-        params.set("n", "all");
-        params.set("order", order);
-        const url = `${API_ROOT}/hand/?${params.toString()}`;
-
-        const data = await fetchWithCache({
-          key: deckHandKey(deckId, order, "all"),
-          fetcher: async () => {
-            const r = await fetch(url);
-            if (!r.ok) throw new Error(`HTTP ${r.status}`);
-            return r.json();
-          },
-        });
-
-        setCards(data);
-        const initial =
-          order === "doc" &&
-          startOrdinalNum != null &&
-          startOrdinalNum >= 1 &&
-          startOrdinalNum <= data.length
-            ? startOrdinalNum - 1
-            : 0;
-        setIdx(initial);
-        setRightCount(0);
-        setWrongCount(0);
-      } catch (e) {
-        setErr(String(e));
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [deckId, order, startOrdinalNum]);
-
-  const _norm = (s) => String(s || "").trim().replace(/\s+/g, " ");
-
-  useEffect(() => {
-    if (!cards.length) return;
-    const card = cards[idx];
-    const correct = _norm(card.back);
-
-    let d = Array.isArray(card?.distractors) ? card.distractors.map(_norm).filter(Boolean) : [];
-    const seen = new Set();
-    d = d.filter((x) => {
-      const key = x.toLowerCase();
-      if (key === correct.toLowerCase()) return false;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-
-    if (d.length < 3) {
-      const needed = 3 - d.length;
-      const pool = pickDistractors(card, cards, Math.max(needed * 2, 3));
-      for (const cand of pool) {
-        const c = _norm(cand);
-        const key = c.toLowerCase();
-        if (!c || key === correct.toLowerCase() || seen.has(key)) continue;
-        d.push(c);
-        seen.add(key);
-        if (d.length >= 3) break;
-      }
+    if (deck.status !== "ready") {
+      loadedRef.current = null;
+      return;
     }
+    timer.cancel();
+    const idx = indexForOrdinal(startOrdinal, cards.length) ?? 0;
+    if (loadedRef.current !== cards) {
+      loadedRef.current = cards;
+      dispatch({ type: "load", total: cards.length, idx });
+    } else {
+      dispatch({ type: "jump", idx });
+    }
+  }, [deck.status, cards, startOrdinal, jump]);
 
-    const all = shuffle([correct, ...d.slice(0, 3)]);
-    setOptions(all);
-    setCorrectIndex(all.findIndex((a) => _norm(a).toLowerCase() === correct.toLowerCase()));
-    setPicked(null);
-  }, [cards, idx]);
+  // Options are shuffled once per card visit (`step`), as before.
+  const ready = deck.status === "ready" && mc.total === cards.length && cards.length > 0;
+  const card = ready ? cards[mc.idx] : null;
+  const { options, correctIndex } = useMemo(
+    () => (card ? buildOptions(card, cards, { pickDistractors, shuffle }) : { options: [], correctIndex: -1 }),
+    [cards, mc.step, ready]
+  );
+
+  // ——— Auto-advance: at most one timer, tied to the answered card visit ———
+  const autoAdvance = shouldAutoAdvance(mc, correctIndex);
+  useEffect(() => {
+    if (!autoAdvance) return undefined;
+    const step = mc.step;
+    timer.schedule(() => dispatch({ type: "auto", step }));
+    return () => timer.cancel();
+  }, [autoAdvance, mc.step]);
+
+  // Leaving the screen (TOC on top, Back) cancels a pending advance; unmount too.
+  useEffect(() => {
+    const unsub = navigation?.addListener?.("blur", () => timer.cancel());
+    return () => {
+      unsub?.();
+      timer.cancel();
+    };
+  }, [navigation]);
 
   const next = () => {
-    if (!cards.length) return;
-    setIdx((i) => (i + 1) % cards.length);
+    timer.cancel();
+    dispatch({ type: "next" });
   };
   const prev = () => {
-    if (!cards.length) return;
-    setIdx((i) => (i - 1 + cards.length) % cards.length);
+    timer.cancel();
+    dispatch({ type: "prev" });
   };
 
   const pick = (i) => {
-    if (picked != null) return;
-    setPicked(i);
-    Haptics.selectionAsync().catch(() => {});
-    if (gameMode === "endless") {
-      if (i === correctIndex) setRightCount((n) => n + 1);
-      else setWrongCount((n) => n + 1);
-    }
-    setTimeout(next, 700);
+    if (mc.picked != null) return; // the reducer also ignores it
+    tick();
+    dispatch({ type: "answer", option: i, correct: i === correctIndex, keepScore: gameMode === "endless" });
   };
 
   const switchMode = (mode) => {
     if (mode === gameMode) return;
     setGameMode(mode);
-    setPicked(null);
-    setRightCount(0);
-    setWrongCount(0);
+    dispatch({ type: "resetScore" });
   };
 
-  if (loading) {
-    return <StatusView loading title="Loading…" />;
+  if (deck.status !== "ready") {
+    return <DeckStatus state={deck} deckId={deckId} navigation={navigation} />;
   }
-  if (err || !cards.length) {
-    return err
-      ? <StatusView tone="error" title="Couldn't load cards" message={err} />
-      : <StatusView tone="empty" title="No cards." />;
+  if (!ready) {
+    return <StatusView loading title="Loading cards…" />;
   }
 
-  const card = cards[idx];
-  const total = cards.length;
+  const total = mc.total;
+  const answered = mc.picked != null;
+  const wasCorrect = answered && mc.picked === correctIndex;
+  const last = isLastCard(mc);
+  const status = !answered
+    ? null
+    : wasCorrect
+    ? last
+      ? "Correct. That was the last card. Next goes back to card 1."
+      : "Correct. Moving to the next card…"
+    : last
+    ? "Not quite. The correct answer is marked. That was the last card. Next goes back to card 1."
+    : "Not quite. The correct answer is marked. Press Next when you're ready.";
+
+  const statusLine = status ? (
+    <Text style={s.status} accessibilityLiveRegion="polite" accessibilityRole="text">
+      {status}
+    </Text>
+  ) : null;
+
+  const source = answered ? (
+    <SourcePanel
+      card={card}
+      template={template}
+      revealed
+      showSource={showSource}
+      onToggleSource={setShowSource}
+      style={[s.source, { width: "100%", maxWidth: isDesktopWeb ? Math.min(CONTENT_MAX_W, CARD_W) : "100%" }]}
+    />
+  ) : null;
 
   return (
     <SafeAreaView style={s.container}>
@@ -207,21 +207,7 @@ export default function GameMC({ route, navigation }) {
       >
         {/* Left */}
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-          <Button title="Back" variant="secondary" size="sm" onPress={goToPicker} />
-          <ChipGroup label="Scoring mode" style={[s.modeToggleWrap, { marginLeft: 4 }]}>
-            <Chip
-              label="1"
-              accessibilityLabel="Mode 1: no score"
-              selected={gameMode === "normal"}
-              onPress={() => switchMode("normal")}
-            />
-            <Chip
-              label="2"
-              accessibilityLabel="Mode 2: endless, counts right and wrong answers"
-              selected={gameMode === "endless"}
-              onPress={() => switchMode("endless")}
-            />
-          </ChipGroup>
+          <Button title="Back" variant="secondary" size="sm" accessibilityLabel="Back to deck" onPress={() => navigation.dispatch(backToPickerAction(deckId))} />
         </View>
 
         {/* Center title */}
@@ -231,8 +217,9 @@ export default function GameMC({ route, navigation }) {
               s.counterLandscape,
               { top: insets.top + (isDesktopWeb ? 2 : 6), fontSize: isDesktopWeb ? 18 : 16 },
             ]}
+            accessibilityLiveRegion="polite"
           >
-            Card {idx + 1}/{total}
+            Card {mc.idx + 1} of {total}
           </Text>
         ) : (
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
@@ -240,9 +227,10 @@ export default function GameMC({ route, navigation }) {
             <Text
               style={[s.header, isDesktopWeb && { fontSize: 18 }]}
               numberOfLines={1}
-              accessibilityLabel={`Card ${idx + 1} of ${total}`}
+              accessibilityLabel={`Card ${mc.idx + 1} of ${total}`}
+              accessibilityLiveRegion="polite"
             >
-              {width < 480 ? `${idx + 1}/${total}` : `Card ${idx + 1}/${total}`}
+              {width < 480 ? `${mc.idx + 1}/${total}` : `Card ${mc.idx + 1} of ${total}`}
             </Text>
           </View>
         )}
@@ -251,28 +239,25 @@ export default function GameMC({ route, navigation }) {
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           {gameMode === "endless" && (
             <>
-              <Badge tone="success" style={s.counterBadge} accessibilityLabel={`Right: ${rightCount}`}>✓ {rightCount}</Badge>
-              <Badge tone="error" style={s.counterBadge} accessibilityLabel={`Wrong: ${wrongCount}`}>✗ {wrongCount}</Badge>
+              <Badge tone="success" style={s.counterBadge} accessibilityLabel={`Right: ${mc.right}`}>✓ {mc.right}</Badge>
+              <Badge tone="error" style={s.counterBadge} accessibilityLabel={`Wrong: ${mc.wrong}`}>✗ {mc.wrong}</Badge>
             </>
           )}
           <Button
-            title="TOC"
+            title="Contents"
             variant="secondary"
             size="sm"
             accessibilityLabel="Table of contents"
-            onPress={() =>
-              navigation.navigate("TOC", {
-                deckId,
-                returnTo: "GameMC",
-                startOrdinal: idx + 1,
-              })
-            }
+            onPress={() => navigation.dispatch(openTocAction({ from: "GameMC", deckId, currentOrdinal: mc.idx + 1 }))}
           />
         </View>
       </View>
 
       {/* Card + options */}
-      <View style={[s.contentWrap, { maxWidth: CONTENT_MAX_W, alignSelf: "center" }]}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={[s.contentWrap, { maxWidth: CONTENT_MAX_W, width: "100%", alignSelf: "center" }]}
+      >
         <View style={{ alignItems: "center" }}>
           <CardShell width={CARD_W} height={CARD_H} variant="front">
             <Text
@@ -284,6 +269,7 @@ export default function GameMC({ route, navigation }) {
               numberOfLines={isDesktopWeb ? 2 : isLandscape ? 1 : 3}
               adjustsFontSizeToFit
               minimumFontScale={0.65}
+              accessibilityRole="header"
             >
               {card.front}
             </Text>
@@ -299,47 +285,90 @@ export default function GameMC({ route, navigation }) {
                 maxWidth: isDesktopWeb ? Math.min(CONTENT_MAX_W, CARD_W) : "100%",
               },
             ]}
+            accessibilityRole="list"
+            accessibilityLabel="Answer options"
           >
             {options.map((opt, i) => {
-              const isPicked = picked === i;
-              const isCorrect = i === correctIndex;
-              const state =
-                picked == null ? "idle" : isCorrect ? "correct" : isPicked ? "wrong" : "idle";
+              const { state, tag } = optionState({ index: i, picked: mc.picked, correctIndex });
+              const isPicked = mc.picked === i;
               return (
                 <Pressable
-                  key={i}
+                  key={`${mc.step}-${i}`}
                   onPress={() => pick(i)}
+                  disabled={answered}
                   accessibilityRole="button"
-                  accessibilityState={{ selected: isPicked }}
+                  accessibilityLabel={optionLabel({ index: i, text: opt, picked: mc.picked, correctIndex })}
+                  accessibilityState={{ selected: isPicked, disabled: answered }}
                   style={({ hovered }) => [
                     s.opt,
                     isDesktopWeb && { minHeight: 56, paddingVertical: 14 },
                     isLandscape && !isDesktopWeb && { minHeight: 40, paddingVertical: 8 },
-                    hovered && picked == null && s.optHover,
+                    hovered && !answered && s.optHover,
                     stateStyles[state],
                   ]}
                 >
-                  <Text
-                    style={[
-                      s.optText,
-                      isDesktopWeb && { fontSize: 18, lineHeight: 24 },
-                      isLandscape && !isDesktopWeb && { fontSize: 14, lineHeight: 18 },
-                      state !== "idle" && stateStyles[`${state}Text`],
-                    ]}
-                  >
-                    {opt}
-                  </Text>
+                  <View style={s.optRow}>
+                    <Text
+                      style={[
+                        s.optLetter,
+                        isLandscape && !isDesktopWeb && { fontSize: 14, lineHeight: 18 },
+                        state !== "idle" && stateStyles[`${state}Text`],
+                      ]}
+                    >
+                      {/* Short landscape has no room for a tag line, so the
+                          ✓/✗ takes the letter's place (still not colour-only). */}
+                      {shortLandscape && tag ? (state === "correct" ? "✓" : "✗") : OPTION_LETTERS[i]}
+                    </Text>
+                    <View style={s.optBody}>
+                      <Text
+                        style={[
+                          s.optText,
+                          isDesktopWeb && { fontSize: 18, lineHeight: 24 },
+                          isLandscape && !isDesktopWeb && { fontSize: 14, lineHeight: 18 },
+                          state !== "idle" && stateStyles[`${state}Text`],
+                        ]}
+                      >
+                        {opt}
+                      </Text>
+                      {!!tag && !shortLandscape && (
+                        <Text style={[s.optTag, stateStyles[`${state}Text`]]}>
+                          {state === "correct" ? "✓ " : "✗ "}
+                          {tag}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
                 </Pressable>
               );
             })}
           </View>
 
-          <View style={[s.controls, { marginBottom: 16 + insets.bottom }]}>
+          {/* Status and source after answering. In short landscape they go
+              below the controls so those keep their place (layout is F4's). */}
+          {!shortLandscape && statusLine}
+          {!shortLandscape && source}
+
+          <View style={[s.controls, { marginBottom: 12 }]}>
             <Button title="Previous" variant="secondary" accessibilityLabel="Previous card" onPress={prev} style={s.navBtn} />
             <Button title="Next" accessibilityLabel="Next card" onPress={next} style={s.navBtn} />
           </View>
+
+          {shortLandscape && statusLine}
+          {shortLandscape && source}
+
+          <ChipGroup label="Scoring" style={[s.modeToggleWrap, { marginBottom: 16 + insets.bottom }]}>
+            {SCORE_MODES.map((m) => (
+              <Chip
+                key={m.id}
+                label={m.label}
+                accessibilityLabel={m.description}
+                selected={gameMode === m.id}
+                onPress={() => switchMode(m.id)}
+              />
+            ))}
+          </ChipGroup>
         </View>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }

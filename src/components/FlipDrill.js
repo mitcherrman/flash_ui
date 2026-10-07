@@ -1,5 +1,13 @@
 // src/components/FlipDrill.js
-import React, { useState, useEffect, useRef, useMemo } from "react";
+// Flip Drill: question → think → tap to reveal → source → next (F3).
+//
+// Data comes from the screen (useDeckHand), so this component only renders a
+// ready deck. Card changes (Next, Previous, swipe, TOC jump, initial load,
+// resume) always land on the QUESTION side: the flip is reset instantly,
+// never animated back, so the next card's answer is never visible mid-turn.
+// The source excerpt stays hidden until the answer has been revealed on this
+// card visit (it is the passage the answer was written from).
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   SafeAreaView,
   View,
@@ -9,20 +17,18 @@ import {
   useWindowDimensions,
   Animated,
   PanResponder,
-  Switch,
   Platform,
 } from "react-native";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { API_BASE } from "../config";
-import { fetchWithCache, deckHandKey } from "../utils/cache";
 import CardShell from "./CardShell";
-import { colors, motion } from "../theme";
-import { Button, StatusView, USE_NATIVE_DRIVER, useReducedMotion } from "../ui";
+import SourcePanel from "./study/SourcePanel";
+import { motion } from "../theme";
+import { Button, USE_NATIVE_DRIVER, useReducedMotion } from "../ui";
+import { indexForOrdinal } from "../study/deck";
+import { backToPickerAction, openTocAction } from "../study/tocNav";
 import styles from "../styles/components/FlipDrill.styles";
-
-const API_ROOT = `${API_BASE}/api/flashcards`;
 
 // --- Visual tuning knobs (easy to adjust) ---
 // You can tune the button positions separately for portrait & landscape.
@@ -42,15 +48,37 @@ const TUNE = {
   // Spacing between buttons
   BUTTONS_GAP_PORTRAIT: 10,
   BUTTONS_GAP_LANDSCAPE: 10,
+
+  // Web, landscape windows with room to spare (desktop/laptop): the source
+  // panel, Prev/Next and the template bar sit below the card, so reserve
+  // their height instead of letting the bar cover Next (seen at 1280×800).
+  // Short landscape (phones) keeps the rule above; that layout is F4's.
+  WEB_BELOW_CARD_H: 360,
+  WEB_ROOMY_MIN_CARD_H: 300,
+};
+
+const SWIPE_ACTIVATE_PX = 20;
+const SWIPE_TRIGGER_PX = 100;
+
+// Haptics are native-only; never let an unsupported platform reject loudly.
+const tick = () => {
+  try {
+    Haptics.selectionAsync()?.catch?.(() => {});
+  } catch {}
+};
+
+// "Question: Why?" + ". Show the answer" without doubling the punctuation.
+const sentence = (t) => {
+  const x = String(t ?? "").trim();
+  return /[.?!…:]$/.test(x) ? x : `${x}.`;
 };
 
 export default function FlipDrill({
   deckId,
-  n = "all",
-  order = "doc",
+  cards,
+  template = null,
   startOrdinal = null,
-  onOpenTOC,
-  onGoBack,
+  jump = null,
   navigation,
 }) {
   const { width, height } = useWindowDimensions();
@@ -70,7 +98,9 @@ export default function FlipDrill({
     CARD_H = Math.round(CARD_W * TUNE.CARD_ASPECT);
   } else {
     // In landscape, leave room for the control row
-    const hForCard = Math.max(TUNE.LANDSCAPE_MIN_CARD_H, availH - TUNE.LANDSCAPE_CONTROLS_H - 16);
+    const roomyWeb = Platform.OS === "web" && availH - TUNE.WEB_BELOW_CARD_H >= TUNE.WEB_ROOMY_MIN_CARD_H;
+    const reserve = roomyWeb ? TUNE.WEB_BELOW_CARD_H : TUNE.LANDSCAPE_CONTROLS_H + 16;
+    const hForCard = Math.max(TUNE.LANDSCAPE_MIN_CARD_H, availH - reserve);
     CARD_W = Math.min(900, availW);
     CARD_H = Math.min(hForCard, Math.round(CARD_W * TUNE.CARD_ASPECT));
     // If card ends up too tall, clamp by height
@@ -78,27 +108,35 @@ export default function FlipDrill({
   }
 
   // ——— State ———
-  const [cards, setCards] = useState([]);
+  const total = cards.length;
   const [idx, setIdx] = useState(0);
   const [flipped, setFlipped] = useState(false);
-  const [err, setErr] = useState("");
-  const [showCtx, setShowCtx] = useState(true);
+  const [revealed, setRevealed] = useState(false); // answer shown on this card visit
+  const [showSource, setShowSource] = useState(true);
 
   const flipAnim = useRef(new Animated.Value(0)).current; // 0 -> front, 180 -> back
   const panX = useRef(new Animated.Value(0)).current;
+  const reduceMotion = useReducedMotion();
 
-  const startOrdinalNum = useMemo(() => {
-    const v =
-      typeof startOrdinal === "number"
-        ? startOrdinal
-        : startOrdinal != null
-        ? parseInt(String(startOrdinal), 10)
-        : null;
-    return Number.isFinite(v) && v > 0 ? v : null;
-  }, [startOrdinal]);
+  // Every card change goes through here: question side, instantly.
+  const goTo = useCallback(
+    (nextIdx) => {
+      flipAnim.stopAnimation();
+      flipAnim.setValue(0);
+      setFlipped(false);
+      setRevealed(false);
+      setIdx(nextIdx);
+    },
+    [flipAnim]
+  );
+
+  // ——— Initial load, resume and TOC jumps (a new `jump` token per jump) ———
+  useEffect(() => {
+    if (!total) return;
+    goTo(indexForOrdinal(startOrdinal, total) ?? 0);
+  }, [total, startOrdinal, jump, goTo]);
 
   // ——— Flip animation (rotate entire shell; instant under reduced motion) ———
-  const reduceMotion = useReducedMotion();
   useEffect(() => {
     Animated.timing(flipAnim, {
       toValue: flipped ? 180 : 0,
@@ -116,98 +154,56 @@ export default function FlipDrill({
     outputRange: ["180deg", "360deg"],
   });
 
-  // ——— Load cards ———
-  useEffect(() => {
-    (async () => {
-      try {
-        const params = new URLSearchParams();
-        params.set("deck_id", String(deckId));
-        params.set("n", typeof n === "string" ? n : String(n));
-        if (order) params.set("order", order);
-        const url = `${API_ROOT}/hand/?${params.toString()}`;
+  const toggleFlip = () => {
+    tick();
+    const next = !flipped;
+    setFlipped(next);
+    if (next) setRevealed(true);
+  };
 
-        const data = await fetchWithCache({
-          key: deckHandKey(deckId, order || "random", typeof n === "string" ? n : String(n)),
-          ttlMs: 6 * 60 * 60 * 1000,
-          fetcher: async () => {
-            const r = await fetch(url);
-            if (!r.ok) {
-              const txt = await r.text();
-              throw new Error(`HTTP ${r.status} • ${txt.slice(0, 140)}`);
-            }
-            return r.json();
-          },
-        });
+  const nextCard = () => {
+    if (!total) return;
+    tick();
+    goTo((idx + 1) % total);
+  };
+  const prevCard = () => {
+    if (!total) return;
+    tick();
+    goTo((idx - 1 + total) % total);
+  };
 
-        setCards(data);
-        const initial =
-          order === "doc" &&
-          startOrdinalNum != null &&
-          startOrdinalNum >= 1 &&
-          startOrdinalNum <= data.length
-            ? startOrdinalNum - 1
-            : 0;
-        setIdx(initial);
-        setFlipped(false);
-      } catch (e) {
-        setErr(String(e));
-      }
-    })();
-  }, [deckId, n, order, startOrdinalNum]);
+  // ——— Swipe nav (handlers read the latest state through a ref) ———
+  const navRef = useRef({ next: nextCard, prev: prevCard });
+  navRef.current = { next: nextCard, prev: prevCard };
+  const springBack = () => {
+    if (reduceMotion) panX.setValue(0);
+    else Animated.spring(panX, { toValue: 0, useNativeDriver: USE_NATIVE_DRIVER }).start();
+  };
+  const springRef = useRef(springBack);
+  springRef.current = springBack;
 
-  // ——— Swipe nav ———
   const responder = useMemo(
     () =>
       PanResponder.create({
-        onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 20,
+        onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > SWIPE_ACTIVATE_PX,
         onPanResponderMove: (_, g) => panX.setValue(g.dx),
         onPanResponderRelease: (_, g) => {
-          if (g.dx > 100) prevCard();
-          else if (g.dx < -100) nextCard();
-          Animated.spring(panX, { toValue: 0, useNativeDriver: true }).start();
+          if (g.dx > SWIPE_TRIGGER_PX) navRef.current.prev();
+          else if (g.dx < -SWIPE_TRIGGER_PX) navRef.current.next();
+          springRef.current();
         },
+        onPanResponderTerminate: () => springRef.current(),
       }),
-    [cards.length]
+    [panX]
   );
 
-  const nextCard = () => {
-    if (!cards.length) return;
-    Haptics.selectionAsync();
-    setIdx((i) => (i + 1) % cards.length);
-    setFlipped(false);
-  };
-  const prevCard = () => {
-    if (!cards.length) return;
-    Haptics.selectionAsync();
-    setIdx((i) => (i - 1 + cards.length) % cards.length);
-    setFlipped(false);
-  };
-
-  const handleBack = () => {
-    if (typeof onGoBack === "function") return onGoBack();
-    navigation?.reset?.({ index: 0, routes: [{ name: "Picker", params: { deckId } }] });
-  };
-
-  const ellipsize = (s, limit = 360) => {
-    if (!s) return "";
-    const t = String(s).trim();
-    return t.length > limit ? t.slice(0, limit - 1) + "…" : t;
-  };
-
-  // ——— Loading / error ———
-  if (err) {
-    return <StatusView tone="error" title="Couldn't load cards" message={err} />;
-  }
-  if (!cards.length) {
-    return <StatusView loading title="Loading cards…" />;
-  }
+  const handleBack = () => navigation?.dispatch(backToPickerAction(deckId));
+  const openToc = () => navigation?.dispatch(openTocAction({ from: "Game2", deckId, currentOrdinal: idx + 1 }));
 
   const card = cards[idx] || {};
-  const sectionName = card.section?.title || card.section || "";
-  const pageLabel = typeof card.page === "number" ? `p. ${card.page}` : "";
-  const contextTag = card.context || "";
+  const counter = `Card ${idx + 1} of ${total}`;
 
-  // ——— TOP BAR: uncluttered (Back • centered counter • TOC) ———
+  // ——— TOP BAR: uncluttered (Back • centered counter • Contents) ———
   return (
     <SafeAreaView style={[styles.container, { paddingTop: V_PADDING, paddingBottom: V_PADDING }]}>
       <View
@@ -222,36 +218,22 @@ export default function FlipDrill({
       >
         {/* Left */}
         <View style={{ flexDirection: "row", alignItems: "center" }}>
-          <Button title="Back" variant="secondary" size="sm" onPress={handleBack} />
+          <Button title="Back" variant="secondary" size="sm" accessibilityLabel="Back to deck" onPress={handleBack} />
         </View>
 
         {/* Center (always visible; absolute centering in landscape to prevent squish) */}
-        {isLandscape ? (
-          <Text style={styles.counterLandscape}>
-            Card {idx + 1}/{cards.length}
-          </Text>
-        ) : (
-          <Text style={styles.counter}>Card {idx + 1}/{cards.length}</Text>
-        )}
+        <Text
+          style={isLandscape ? styles.counterLandscape : styles.counter}
+          accessibilityLiveRegion="polite"
+          accessibilityRole="text"
+        >
+          {counter}
+        </Text>
 
         {/* Right */}
         <View style={{ flexDirection: "row", alignItems: "center" }}>
-          {onOpenTOC ? (
-            <Button title="TOC" variant="secondary" size="sm" accessibilityLabel="Table of contents" onPress={onOpenTOC} />
-          ) : navigation ? (
-            <Button
-              title="TOC"
-              variant="secondary"
-              size="sm"
-              accessibilityLabel="Table of contents"
-              onPress={() =>
-                navigation.navigate("TOC", {
-                  deckId,
-                  returnTo: "Game2",
-                  startOrdinal: idx + 1,
-                })
-              }
-            />
+          {navigation ? (
+            <Button title="Contents" variant="secondary" size="sm" accessibilityLabel="Table of contents" onPress={openToc} />
           ) : null}
         </View>
       </View>
@@ -269,8 +251,11 @@ export default function FlipDrill({
           { transform: [{ translateX: panX }] },
         ]}
       >
-        {/* FRONT */}
+        {/* FRONT — hidden from assistive tech while the answer shows */}
         <Animated.View
+          aria-hidden={flipped}
+          importantForAccessibility={flipped ? "no-hide-descendants" : "auto"}
+          accessibilityElementsHidden={flipped}
           style={[
             StyleSheet.absoluteFillObject,
             { backfaceVisibility: "hidden" },
@@ -278,14 +263,19 @@ export default function FlipDrill({
           ]}
         >
           <CardShell width={CARD_W} height={CARD_H} variant="front">
+            <Text style={styles.faceLabel}>Question</Text>
             <View style={local.cardInner}>
               <Text style={styles.textFront}>{card.front}</Text>
             </View>
+            <Text style={styles.faceHint}>Tap the card to show the answer</Text>
           </CardShell>
         </Animated.View>
 
-        {/* BACK */}
+        {/* BACK — not exposed to assistive tech until revealed */}
         <Animated.View
+          aria-hidden={!flipped}
+          importantForAccessibility={flipped ? "auto" : "no-hide-descendants"}
+          accessibilityElementsHidden={!flipped}
           style={[
             StyleSheet.absoluteFillObject,
             { backfaceVisibility: "hidden" },
@@ -293,9 +283,11 @@ export default function FlipDrill({
           ]}
         >
           <CardShell width={CARD_W} height={CARD_H} variant="back">
+            <Text style={[styles.faceLabel, styles.faceLabelBack]}>Answer</Text>
             <View style={local.cardInner}>
-              <Text style={styles.textBack}>{card.back}</Text>
+              <Text style={styles.textBack}>{flipped || revealed ? card.back : ""}</Text>
             </View>
+            <Text style={[styles.faceHint, styles.faceLabelBack]}>Tap to see the question again</Text>
           </CardShell>
         </Animated.View>
 
@@ -303,55 +295,26 @@ export default function FlipDrill({
         <Pressable
           style={StyleSheet.absoluteFillObject}
           accessibilityRole="button"
-          accessibilityLabel={flipped ? "Show question" : "Show answer"}
-          onPress={() => {
-            Haptics.selectionAsync();
-            setFlipped((f) => !f);
-          }}
+          accessibilityLabel={
+            flipped
+              ? `Answer: ${sentence(card.back)} Show the question`
+              : `Question: ${sentence(card.front)} Show the answer`
+          }
+          accessibilityState={{ expanded: flipped }}
+          onPress={toggleFlip}
         />
       </Animated.View>
 
-      {/* ── Info panel (wrapped, no truncation) ─────────────────────────── */}
+      {/* ── Source panel: metadata always, excerpt only after reveal ───── */}
       {!(Platform.OS !== "web" && isLandscape) && (
-        <View
-          style={[
-            styles.infoPanel,
-            { width: CARD_W, alignSelf: "center", marginTop: 12 },
-          ]}
-        >
-          {/* Section (wraps) */}
-          <Text style={[styles.infoLine, { flexWrap: "wrap" }]}>
-            {!!sectionName && <Text style={styles.infoKey}>Section: </Text>}
-            <Text style={styles.infoVal}>{sectionName || "—"}</Text>
-          </Text>
-
-          {/* Page + Context (wraps) */}
-          <Text style={[styles.infoLine, { flexWrap: "wrap" }]}>
-            <Text style={styles.infoKey}>Page: </Text>
-            <Text style={styles.infoVal}>{pageLabel || "—"}</Text>
-            {!!contextTag && <Text style={styles.infoVal}>   •   {contextTag}</Text>}
-          </Text>
-
-          {/* Toggle moved here to declutter header */}
-          <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6 }}>
-            <Text style={styles.ctxLabel}>Show context</Text>
-            <Switch
-              value={showCtx}
-              onValueChange={setShowCtx}
-              thumbColor={colors.surface}
-              {...(Platform.OS === "web" ? { activeThumbColor: colors.surface } : null)}
-              trackColor={{ true: colors.accent, false: colors.borderStrong }}
-              accessibilityLabel="Show context"
-              style={{ marginLeft: 8 }}
-            />
-          </View>
-
-          {showCtx && !!card.excerpt && (
-            <Text style={[styles.excerpt, { marginTop: 6 }]}>
-              "{ellipsize(card.excerpt, 360)}"
-            </Text>
-          )}
-        </View>
+        <SourcePanel
+          card={card}
+          template={template}
+          revealed={revealed}
+          showSource={showSource}
+          onToggleSource={setShowSource}
+          style={{ width: CARD_W, alignSelf: "center", marginTop: 12 }}
+        />
       )}
 
       {/* Prev / Next — absolute, with web-safe positioning */}
@@ -378,7 +341,7 @@ export default function FlipDrill({
               : undefined,
         }}
       >
-        <Button title="Prev" variant="secondary" accessibilityLabel="Previous card" onPress={prevCard} style={styles.navBtn} />
+        <Button title="Previous" variant="secondary" accessibilityLabel="Previous card" onPress={prevCard} style={styles.navBtn} />
         <Button title="Next" accessibilityLabel="Next card" onPress={nextCard} style={styles.navBtn} />
       </View>
     </SafeAreaView>
