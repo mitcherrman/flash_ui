@@ -13,7 +13,7 @@ import { saveLastDeck, saveTemplate } from "../utils/cache";
 import {
   GENERATE_PATH, appendFile, deckNameFor, describeGenerateError, generateFields, postMultipart,
 } from "../source/api";
-import { completeBuild, createRun, formatDuration, resolveBuildMs, runRequest } from "../source/buildRun";
+import { buildOutcome, completeBuild, createRun, formatDuration, resolveBuildMs, runRequest } from "../source/buildRun";
 import {
   BrandMark, Button, CardStackGlyph, Notice, PageHeader, Screen, Surface,
   USE_NATIVE_DRIVER, useReducedMotion,
@@ -89,7 +89,7 @@ export default function BuildScreen({ route, navigation }) {
             phase: "review",
             warnings: out.warnings,
             pickerParams: out.pickerParams,
-            created: json?.cards_created ?? null,
+            outcome: buildOutcome(json),
           });
         }
       },
@@ -202,11 +202,11 @@ export default function BuildScreen({ route, navigation }) {
           <>
             <Notice
               tone="success"
-              title={view.created != null ? `${view.created} cards created` : "Deck created"}
+              title={view.outcome.title}
               message={`Built in ${formatDuration(elapsedMs)}.`}
               style={styles.notice}
             />
-            <Notice tone="warning" title="Some sections had less material" style={styles.notice}>
+            <Notice tone="warning" title={view.outcome.warningsTitle} style={styles.notice}>
               {view.warnings.map((w, i) => (
                 <Text key={i} style={styles.warningItem}>
                   • {w}

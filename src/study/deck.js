@@ -2,18 +2,20 @@
 // Deck identity and load-state rules for the study screens (F3).
 // Pure: no React / React Native imports, so `npm test` covers it.
 //
-// The backend cannot tell "deck deleted" from "deck has no cards": `hand` and
-// `toc` both answer 200 [] for an unknown deck id. A deck row is only created
-// once cards exist (views.generate_deck), so in practice [] means the deck is
-// not on this server. Local evidence (resume metadata or a saved template for
-// this id) lets the UI say "no longer available" instead of a bare "empty".
+// Deck ids (backend F5) are opaque public ids: 22 URL-safe characters from
+// `generate`'s `deck_id`. The server's integer key is never exposed, so there
+// is no human "Deck #N" any more. The server answers 404 for a deck it
+// doesn't have and 200 [] for a deck with no cards, so "missing" and "empty"
+// come straight from the response — no local guessing.
 
 import { formatDuration } from "../source/buildRun.js";
+import { waitPhrase } from "../source/api.js";
 
-/** A usable deck id: a positive integer, as a number or numeric string. */
+const PUBLIC_ID = /^[A-Za-z0-9_-]{16,32}$/;
+
+/** A usable deck id: the server's opaque public id. */
 export function isValidDeckId(deckId) {
-  if (typeof deckId === "number") return Number.isInteger(deckId) && deckId > 0;
-  return typeof deckId === "string" && /^[1-9]\d*$/.test(deckId.trim());
+  return typeof deckId === "string" && PUBLIC_ID.test(deckId);
 }
 
 /** Resume metadata that belongs to this deck, or null. */
@@ -49,11 +51,8 @@ export function resolveDeckIdentity({ deckId, meta = null, template = null, buil
     deckId,
     title,
     displayTitle: title ?? "Untitled deck",
-    idLabel: deckId != null ? `Deck #${deckId}` : null,
     cardsCount,
     buildMs: ms,
-    /** True when this device has reason to believe the deck had cards. */
-    expectsCards: (cardsCount ?? 0) > 0 || !!template,
   };
 }
 
@@ -70,51 +69,61 @@ export function deckSubtitle(identity, cardCount = null) {
   if (Number.isInteger(n)) parts.push(`${n} ${n === 1 ? "card" : "cards"}`);
   const built = formatBuildTime(identity?.buildMs);
   if (built) parts.push(built);
-  if (identity?.idLabel) parts.push(identity.idLabel);
   return parts.join(" · ");
 }
 
 // ── load states ────────────────────────────────────────────────────────────
-// loading | ready | empty | missing | error (reason: network | http | malformed | no-deck)
+// loading | ready | empty | missing | error (reason: network | busy | http | malformed | no-deck)
 
 export const LOADING = Object.freeze({ status: "loading" });
 
 /**
  * Normalise a load outcome into a state.
- *   { items }            → ready (non-empty) / missing or empty ([])
- *   { error }            → error with a reason; aborted → null (ignore)
+ *   { items }            → ready (non-empty) / empty ([]: the deck exists, no cards)
+ *   { error }            → missing (HTTP 404), or error with a reason;
+ *                          aborted → null (ignore)
  */
-export function deckStateFrom({ items, error, expectsCards = false } = {}) {
+export function deckStateFrom({ items, error } = {}) {
   if (error) {
     if (error.kind === "aborted" || error.name === "AbortError") return null;
+    if (error.kind === "http" && error.status === 404) return { status: "missing" };
+    if (error.kind === "http" && error.status === 429) {
+      return { status: "error", reason: "busy", httpStatus: 429, retryAfter: error.retryAfter ?? null };
+    }
     const reason =
       error.kind === "http" ? "http" : error.kind === "response" ? "malformed" : "network";
     return { status: "error", reason, httpStatus: error.status ?? null };
   }
   if (!Array.isArray(items)) return { status: "error", reason: "malformed", httpStatus: null };
-  if (items.length === 0) return { status: expectsCards ? "missing" : "empty" };
+  if (items.length === 0) return { status: "empty" };
   return { status: "ready", items };
 }
 
 /** Human copy for a non-ready state. Never includes raw server text. */
-export function describeDeckState(state, { deckId } = {}) {
-  const ref = deckId != null ? `deck #${deckId}` : "this deck";
+export function describeDeckState(state) {
   switch (state?.status) {
     case "loading":
       return { title: "Loading deck…", message: "" };
     case "missing":
       return {
         title: "This saved deck is no longer available",
-        message: `The server has no cards for ${ref}. It may have been deleted, or the server's data was reset. The copy saved on this device is out of date.`,
+        message:
+          "The server doesn't have this deck. It may have been deleted, the server's data may have been reset, or the app is connected to a different server. The copy saved on this device is out of date.",
       };
     case "empty":
       return {
         title: "This deck has no cards",
-        message: `The server returned no cards for ${ref}.`,
+        message: "The deck exists on the server, but it has no cards to study.",
       };
     case "error":
       if (state.reason === "no-deck") {
         return { title: "No deck selected", message: "Build a deck or resume one from the Upload screen." };
+      }
+      if (state.reason === "busy") {
+        return {
+          title: "The server is busy",
+          message: `Too many requests from this device. Try again ${waitPhrase(state.retryAfter)}.`,
+        };
       }
       if (state.reason === "network") {
         return {
@@ -152,7 +161,7 @@ export function indexForOrdinal(ordinal, total) {
   return n - 1;
 }
 
-/** Safe file stem for exports: the deck title, else deck-<id>. */
+/** Safe file stem for exports: the deck title, else deck-<first 8 id characters>. */
 export function exportStem({ title, deckId }) {
   const slug = String(title || "")
     .normalize("NFKD")
@@ -162,5 +171,5 @@ export function exportStem({ title, deckId }) {
     .replace(/-+/g, "-")
     .slice(0, 60)
     .replace(/^-|-$/g, "");
-  return slug || `deck-${deckId}`;
+  return slug || `deck-${String(deckId ?? "").slice(0, 8) || "cards"}`;
 }

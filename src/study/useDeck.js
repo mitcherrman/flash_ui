@@ -3,7 +3,8 @@
 // saved study template, each as an explicit load state.
 //
 //   const deck = useDeckHand(deckId);   // { status, items, retry, ... }
-//   status: loading | ready | empty | missing | error (reason)
+//   status: loading | ready | empty (deck has no cards) | missing (server 404)
+//           | error (reason)
 //
 // All network/caching rules live in the pure ./deckApi.js and ./deck.js.
 // F6 (portfolio demo) can serve a fixture deck by swapping `deckSource`.
@@ -29,16 +30,6 @@ export const deckSource = {
 
 const NO_DECK = Object.freeze({ status: "error", reason: "no-deck" });
 
-/** Does this device have reason to believe the deck had cards? */
-async function expectsCards(deckId) {
-  try {
-    const { meta, template } = await deckSource.loadIdentity(deckId);
-    return resolveDeckIdentity({ deckId, meta, template }).expectsCards;
-  } catch {
-    return false;
-  }
-}
-
 function useDeckList(deckId, load) {
   const [state, setState] = useState(() => (isValidDeckId(deckId) ? LOADING : NO_DECK));
   const [attempt, setAttempt] = useState(0);
@@ -58,7 +49,7 @@ function useDeckList(deckId, load) {
       let next;
       try {
         const { items } = await load(deckId, controller?.signal, force);
-        next = deckStateFrom({ items, expectsCards: items.length ? false : await expectsCards(deckId) });
+        next = deckStateFrom({ items });
       } catch (error) {
         next = deckStateFrom({ error });
         if (next && error?.kind !== "aborted") console.warn("[study] deck load failed", error);
@@ -130,7 +121,7 @@ export function useDeckCheck(deckId, buildMsParam = null) {
       let next;
       try {
         const { items } = await deckSource.verifyDeck(deckId, controller?.signal);
-        next = deckStateFrom({ items, expectsCards: items.length ? false : await expectsCards(deckId) });
+        next = deckStateFrom({ items });
       } catch (error) {
         next = deckStateFrom({ error });
         if (next) console.warn("[study] deck check failed", error);

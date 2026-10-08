@@ -29,6 +29,7 @@ import {
 import { RequestError } from "../src/source/api.js";
 
 const API = "http://127.0.0.1:8000";
+const DID = "cA5OSbFx_UWsflkXNFyH-w"; // an opaque public deck id (backend F5)
 
 // ── fakes ───────────────────────────────────────────────────────────────────
 function memoryStore(initial = {}) {
@@ -69,16 +70,15 @@ const card = (id, extra = {}) => ({ id, front: `Q${id}`, back: `A${id}`, excerpt
 const tocRow = (id, ordinal) => ({ id, ordinal, front: `Q${id}`, section: "S", page: id, context: "" });
 
 // ── identity / Picker title ────────────────────────────────────────────────
-test("Picker title: the document name from resume metadata, id only as secondary", () => {
+test("Picker title: the document name from resume metadata; the opaque id is never shown", () => {
   const id = resolveDeckIdentity({
-    deckId: 7,
-    meta: { deckId: 7, name: "Cell Biology Notes", cardsCount: 10, buildMs: 420 },
+    deckId: DID,
+    meta: { deckId: DID, name: "Cell Biology Notes", cardsCount: 10, buildMs: 420 },
     template: { title: "Cell Biology Notes" },
   });
   assert.equal(id.displayTitle, "Cell Biology Notes");
-  assert.equal(id.idLabel, "Deck #7");
-  assert.equal(deckSubtitle(id, 10), "10 cards · Built in under a second · Deck #7");
-  assert.ok(!id.displayTitle.includes("#"));
+  assert.equal(deckSubtitle(id, 10), "10 cards · Built in under a second");
+  assert.ok(!JSON.stringify([id.displayTitle, deckSubtitle(id, 10)]).includes(DID));
 });
 
 test("Picker title: falls back to the saved template title, never another deck's metadata", () => {
@@ -91,10 +91,10 @@ test("Picker title: untrustworthy titles are not used and no name is invented", 
   for (const bad of ["tmpgy0tbwcp", "Deck 12", "Deck #12", "deck", "   ", "", null, 42]) {
     assert.equal(isTrustworthyTitle(bad), false, String(bad));
   }
-  const id = resolveDeckIdentity({ deckId: 12, template: { title: "tmpgy0tbwcp" } });
+  const id = resolveDeckIdentity({ deckId: DID, template: { title: "tmpgy0tbwcp" } });
   assert.equal(id.title, null);
   assert.equal(id.displayTitle, "Untitled deck");
-  assert.equal(deckSubtitle(id), "Deck #12");
+  assert.equal(deckSubtitle(id), "");
 });
 
 test("build time: sub-second is 'under a second', never 0:00", () => {
@@ -113,22 +113,28 @@ test("route buildMs (fresh build) wins over saved metadata", () => {
   assert.equal(formatBuildTime(id.buildMs), "Built in under a second");
 });
 
-test("expectsCards: local evidence the deck had cards", () => {
-  assert.equal(resolveDeckIdentity({ deckId: 1 }).expectsCards, false);
-  assert.equal(resolveDeckIdentity({ deckId: 1, meta: { deckId: 1, cardsCount: 4 } }).expectsCards, true);
-  assert.equal(resolveDeckIdentity({ deckId: 1, template: { title: "x", sections: [] } }).expectsCards, true);
+test("identity no longer guesses whether the deck should have cards (the server says)", () => {
+  const id = resolveDeckIdentity({ deckId: DID, meta: { deckId: DID, cardsCount: 4 } });
+  assert.equal("expectsCards" in id, false);
+  assert.equal("idLabel" in id, false);
 });
 
-test("deck ids", () => {
-  assert.ok(isValidDeckId(3) && isValidDeckId("12"));
-  for (const bad of [0, -1, 1.5, "", "abc", "0", null, undefined, NaN]) assert.equal(isValidDeckId(bad), false, String(bad));
+test("deck ids are the server's opaque public ids", () => {
+  assert.ok(isValidDeckId(DID));
+  assert.ok(isValidDeckId("A".repeat(16)) && isValidDeckId("a-b_c".repeat(6)));
+  // Integer ids (pre-F5) and anything that isn't a public id are refused.
+  for (const bad of [3, "12", 0, -1, 1.5, "", "abc", "x".repeat(40), "has spaces 12345678", "../../etc/passwd!", null, undefined, NaN]) {
+    assert.equal(isValidDeckId(bad), false, String(bad));
+  }
 });
 
 // ── load states ─────────────────────────────────────────────────────────────
 test("load states: ready / empty / missing / error reasons / aborted ignored", () => {
   assert.equal(deckStateFrom({ items: [card(1)] }).status, "ready");
   assert.equal(deckStateFrom({ items: [] }).status, "empty");
-  assert.equal(deckStateFrom({ items: [], expectsCards: true }).status, "missing");
+  assert.deepEqual(deckStateFrom({ error: new RequestError({ kind: "http", status: 404, code: "deck_not_found" }) }), { status: "missing" });
+  assert.deepEqual(deckStateFrom({ error: new RequestError({ kind: "http", status: 429, retryAfter: 120 }) }),
+    { status: "error", reason: "busy", httpStatus: 429, retryAfter: 120 });
   assert.deepEqual(deckStateFrom({ error: new RequestError({ kind: "network" }) }), { status: "error", reason: "network", httpStatus: null });
   assert.deepEqual(deckStateFrom({ error: new RequestError({ kind: "http", status: 500 }) }), { status: "error", reason: "http", httpStatus: 500 });
   assert.equal(deckStateFrom({ error: new RequestError({ kind: "response" }) }).reason, "malformed");
@@ -138,13 +144,17 @@ test("load states: ready / empty / missing / error reasons / aborted ignored", (
 
 test("state copy is human and never carries server text", () => {
   const err = deckStateFrom({ error: new RequestError({ kind: "http", status: 500, detail: "Traceback C:\\tmp\\x.py" }) });
-  const copy = describeDeckState(err, { deckId: 4 });
+  const copy = describeDeckState(err);
   assert.equal(copy.title, "The server couldn't load this deck");
   assert.equal(copy.detail, "Server response: HTTP 500");
   assert.ok(!JSON.stringify(copy).includes("Traceback"));
-  assert.match(describeDeckState({ status: "missing" }, { deckId: 4 }).title, /no longer available/);
-  assert.match(describeDeckState({ status: "missing" }, { deckId: 4 }).message, /deck #4/);
+  assert.match(describeDeckState({ status: "missing" }).title, /no longer available/);
+  assert.match(describeDeckState({ status: "missing" }).message, /server doesn't have this deck/);
   assert.equal(describeDeckState({ status: "empty" }).title, "This deck has no cards");
+  assert.match(describeDeckState({ status: "empty" }).message, /exists on the server/);
+  const busy = describeDeckState({ status: "error", reason: "busy", retryAfter: 120 });
+  assert.equal(busy.title, "The server is busy");
+  assert.match(busy.message, /in about 2 minutes/);
   assert.equal(describeDeckState({ status: "error", reason: "no-deck" }).title, "No deck selected");
   assert.equal(describeDeckState({ status: "error", reason: "network" }).title, "Couldn't reach the flashcard server");
 });
@@ -160,14 +170,17 @@ test("ordinals and stale-hand detection", () => {
   assert.equal(isStaleHand([card(1)], [tocRow(1, 1), tocRow(2, 2)]), true);
 });
 
-test("export file names use the deck title, else deck-<id>", () => {
-  assert.equal(exportStem({ title: "Cell Biology: Notes (v2)", deckId: 3 }), "Cell-Biology-Notes-v2");
-  assert.equal(exportStem({ title: null, deckId: 3 }), "deck-3");
-  assert.equal(exportStem({ title: "///", deckId: 3 }), "deck-3");
+test("export file names use the deck title, else a short deck-<id> prefix", () => {
+  assert.equal(exportStem({ title: "Cell Biology: Notes (v2)", deckId: DID }), "Cell-Biology-Notes-v2");
+  assert.equal(exportStem({ title: null, deckId: DID }), "deck-cA5OSbFx");
+  assert.equal(exportStem({ title: "///", deckId: DID }), "deck-cA5OSbFx");
+  assert.equal(exportStem({ title: null, deckId: null }), "deck-cards");
 });
 
 // ── request contract ────────────────────────────────────────────────────────
-test("hand/toc URLs are the existing contract", () => {
+test("hand/toc URLs are the existing contract (deck_id carries the public id)", () => {
+  assert.equal(handUrl(API, DID), `${API}/api/flashcards/hand/?deck_id=${DID}&n=all&order=doc`);
+  assert.equal(tocUrl(API, DID), `${API}/api/flashcards/toc/?deck_id=${DID}`);
   assert.equal(handUrl(API, 7), `${API}/api/flashcards/hand/?deck_id=7&n=all&order=doc`);
   assert.equal(tocUrl(API, 7), `${API}/api/flashcards/toc/?deck_id=7`);
   assert.equal(handKey(7), "deck:7:hand:doc:all");
@@ -263,20 +276,55 @@ test("a storage failure never blocks loading", async () => {
 });
 
 // ── deck validation (Picker) ────────────────────────────────────────────────
-test("missing deck: a stale cached hand cannot mask it; the check uses one toc request", async () => {
+const NOT_FOUND = { status: 404, body: { detail: "This deck doesn't exist on the server.", code: "deck_not_found" } };
+
+test("missing deck (404): a stale cached hand cannot mask it; the check uses one toc request", async () => {
   const calls = [];
   const store = memoryStore({ [handKey(7)]: [card(1), card(2)], [tocKey(7)]: [tocRow(1, 1), tocRow(2, 2)] });
-  const fetchImpl = fakeFetch({ "/api/flashcards/toc/": { body: [] } }, calls);
-  const { items } = await verifyDeck({ apiBase: API, deckId: 7, store, fetchImpl });
+  const fetchImpl = fakeFetch({ "/api/flashcards/toc/": NOT_FOUND }, calls);
+  const err = await verifyDeck({ apiBase: API, deckId: 7, store, fetchImpl }).catch((e) => e);
   assert.deepEqual(calls, [`${API}/api/flashcards/toc/?deck_id=7`]);
-  assert.equal(deckStateFrom({ items, expectsCards: true }).status, "missing");
+  assert.equal(err.code, "deck_not_found");
+  assert.deepEqual(deckStateFrom({ error: err }), { status: "missing" });
   assert.equal(store.data.has(handKey(7)), false, "stale hand dropped");
   assert.equal(store.data.has(tocKey(7)), false, "stale toc dropped");
   // A study screen opened afterwards asks the server rather than the stale cache.
   const studyCalls = [];
-  const after = await loadHand({ apiBase: API, deckId: 7, store, fetchImpl: fakeFetch({ "/api/flashcards/hand/": { body: [] } }, studyCalls) });
+  const after = await loadHand({ apiBase: API, deckId: 7, store, fetchImpl: fakeFetch({ "/api/flashcards/hand/": NOT_FOUND }, studyCalls) })
+    .catch((e) => e);
   assert.equal(studyCalls.length, 1);
-  assert.equal(after.items.length, 0);
+  assert.deepEqual(deckStateFrom({ error: after }), { status: "missing" });
+});
+
+test("a study screen's 404 drops that deck's cached list (no ambiguity with an empty deck)", async () => {
+  // Cache-first study only reaches the server without a usable copy;
+  // forcing (Try again) with a cached hand shows the drop.
+  const store = memoryStore({ [handKey(7)]: [card(1)], [tocKey(8)]: [tocRow(1, 1)] });
+  const err = await loadHand({ apiBase: API, deckId: 7, store, force: true, fetchImpl: fakeFetch({ "/api/flashcards/hand/": NOT_FOUND }) })
+    .catch((e) => e);
+  assert.equal(err.status, 404);
+  assert.equal(store.data.has(handKey(7)), false);
+  assert.equal(store.data.has(tocKey(8)), true, "other decks untouched");
+});
+
+test("empty deck ([]): the deck exists with no cards; caches dropped, state is empty", async () => {
+  const store = memoryStore({ [handKey(7)]: [card(1)], [tocKey(7)]: [tocRow(1, 1)] });
+  const { items } = await verifyDeck({ apiBase: API, deckId: 7, store, fetchImpl: fakeFetch({ "/api/flashcards/toc/": { body: [] } }) });
+  assert.deepEqual(deckStateFrom({ items }), { status: "empty" });
+  assert.equal(store.data.has(handKey(7)), false);
+  assert.equal(store.data.has(tocKey(7)), false);
+});
+
+test("other server errors leave healthy cache alone", async () => {
+  const store = memoryStore({ [handKey(7)]: [card(1)], [tocKey(7)]: [tocRow(1, 1)] });
+  for (const status of [429, 500, 502]) {
+    await assert.rejects(
+      verifyDeck({ apiBase: API, deckId: 7, store, fetchImpl: fakeFetch({ "/api/flashcards/toc/": { status, body: { detail: "x", code: "y" } } }) }),
+      { kind: "http", status }
+    );
+  }
+  assert.equal(store.data.get(handKey(7)).length, 1);
+  assert.equal(store.data.get(tocKey(7)).length, 1);
 });
 
 test("reused deck id: a cached hand whose card ids differ is dropped", async () => {

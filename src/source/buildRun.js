@@ -67,6 +67,31 @@ export function resolveBuildMs(json, measuredMs) {
 }
 
 /**
+ * What the server actually made (backend F5). `partial` comes from the
+ * server when present, else from the counts; `created` is always the real
+ * number of cards, never the requested one.
+ */
+export function buildOutcome(json) {
+  const created = Number.isInteger(json?.cards_created) ? json.cards_created : null;
+  const requested = Number.isInteger(json?.requested) ? json.requested : null;
+  const partial =
+    typeof json?.partial === "boolean" ? json.partial : created != null && requested != null && created < requested;
+  let title = "Deck created";
+  if (created != null) {
+    title = partial && requested != null
+      ? `${created} of ${requested} cards created`
+      : `${created} ${created === 1 ? "card" : "cards"} created`;
+  }
+  return {
+    created,
+    requested,
+    partial,
+    title,
+    warningsTitle: partial ? "Fewer cards than you asked for" : "Some sections had less material",
+  };
+}
+
+/**
  * Success handoff. Storage writes are issued first (not awaited, so a slow
  * device store never blocks the UI), then — only when there are no warnings
  * to read — the caller navigates to the Picker. With warnings the Build

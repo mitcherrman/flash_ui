@@ -12,6 +12,7 @@ import {
   ANALYZE_PATH, appendFile, describeAnalyzeError, postMultipart,
 } from "../source/api";
 import { createRun, runRequest } from "../source/buildRun";
+import { deckSubtitle, isValidDeckId, resolveDeckIdentity } from "../study/deck";
 import {
   buildParams, initialPlanState, isChangedFromRecommendation, isPdfFile,
   planLimits, planReducer, planSummary, validatePlan,
@@ -121,7 +122,7 @@ export default function UploadScreen({ navigation }) {
   }, []);
 
   function resumeCached() {
-    if (!cached?.deckId) return;
+    if (!isValidDeckId(cached?.deckId)) return;
     navigation.navigate("Picker", { deckId: cached.deckId });
   }
 
@@ -129,6 +130,10 @@ export default function UploadScreen({ navigation }) {
     await clearCache();
     setCached(null);
   }
+
+  // The deck's name and card count; the opaque deck id is never shown.
+  const resume = isValidDeckId(cached?.deckId) ? resolveDeckIdentity({ deckId: cached.deckId, meta: cached }) : null;
+  const resumeMeta = resume ? deckSubtitle(resume) : "";
 
   // ── build ──
   const validity = validatePlan(plan);
@@ -151,21 +156,19 @@ export default function UploadScreen({ navigation }) {
         subtitle={hasFile ? "Review the structure, then choose how many cards to write." : "Upload a PDF. Its sections and pages are found first, then cards are written for each section."}
       />
 
-      {cached && (
+      {resume && (
         <Surface style={styles.resumeCard}>
           <MetaLabel>Resume last deck</MetaLabel>
           <Text style={styles.resumeName} numberOfLines={2}>
-            {cached.name || `Deck #${cached.deckId}`}
+            {resume.displayTitle}
           </Text>
-          <Text style={styles.resumeMeta}>
-            {cached.cardsCount != null ? `${cached.cardsCount} cards · ` : ""}Deck #{cached.deckId}
-          </Text>
+          {!!resumeMeta && <Text style={styles.resumeMeta}>{resumeMeta}</Text>}
           <View style={styles.buttonRow}>
             <Button
               title="Resume"
               size="sm"
               onPress={resumeCached}
-              accessibilityLabel={`Resume ${cached.name || `deck ${cached.deckId}`}`}
+              accessibilityLabel={`Resume ${resume.displayTitle}`}
             />
             <Button title="Discard" size="sm" variant="secondary" onPress={discardCached} accessibilityHint="Forgets the saved deck on this device" />
           </View>

@@ -5,6 +5,8 @@
 **Frontend branch:** `flashv2/f0-baseline` (this file is the only change)
 
 > **F0.5 update:** blockers B1–B4 are fixed on `flashv2/f05-stabilization` in both repos. See **§31 F0.5 Addendum** at the end. Where §1–§30 describe F0.5-fixed behaviour (page ranges, `ordinal = 0`, `src/env.js`, `tiktoken`, `.chunks.pkl`, temp paths in errors, template title), §31 supersedes them.
+>
+> **F5 update (§36):** the backend is hardened for a small public demo. Deck ids are now opaque public ids (the API's `deck_id` is a string), unknown decks are 404, `/feedback/` is removed, errors are `{detail, code}`, and settings come from the environment. Where §1–§35 describe the API, configuration or dependencies differently, §36 supersedes them.
 
 Evidence labels used throughout:
 
@@ -2022,3 +2024,212 @@ The 46 F4 tests:
 - Escape on an empty TOC search returns to studying (web).
 - Phone-portrait Flip Drill cards are taller (0.72 aspect) to use the spare height.
 - Tablet and desktop show the study template as a centred dialog rather than a full-screen page.
+
+---
+
+## 36. F5 — Backend / demo hardening
+
+**Workstream:** `FLASH-V2-F5` (2026-10-07). Both repos, branch `flashv2/f5-demo-hardening` in each. **Backend F5 commit: `9b9239d2fe74232fc0e53a6f2b537ba4d955ba5c`.** Frontend based on `21591a7421d73e925f3d962fb9e7776169fd8f01` (F4); backend based on `b3cc888acbf2bb493f1033384659c0aadc50c967` (F0.5). No deployment, no OpenAI calls, no private documents. Default branches untouched (frontend `master` = `f60dd52`, backend `main` = `18a6928`).
+
+Scope: make the product safe to demonstrate and defensible for a small public demo. Threat model: anonymous visitors, generation costs money, uploaded PDFs are untrusted, deck ids must not expose other people's decks, configuration comes from the environment, frontend and backend may be on different origins. **Not** an enterprise security baseline; there are still no accounts. The backend now has its own `README.md` (configuration, API, error contract, database, deployment caveats) and `.env.example`; this section summarises and records the evidence.
+
+### 36.1 Files
+
+| Repo | File | Change |
+|---|---|---|
+| BE | `flashsite/settings.py` | Rewritten: every deployment value from the environment; fails closed (§36.3) |
+| BE | `flashsite/test_settings.py` (new), `manage.py` | Deterministic placeholder settings, selected automatically for `manage.py test` |
+| BE | `flashsite/urls.py` | JSON `handler400/403/404/500` |
+| BE | `flashcards/errors.py` (new) | `ApiError`, the DRF exception handler, the error contract |
+| BE | `flashcards/uploads.py` (new) | Upload size handler, PDF validation, private temp copy with guaranteed removal |
+| BE | `flashcards/throttles.py` (new) | Per-IP scoped throttles and the server-wide daily generation budget |
+| BE | `flashcards/models.py`, `migrations/0012_deck_public_id.py` (new), `serializers.py` | `Deck.public_id` (opaque) + backfill; cards report it as `deck` |
+| BE | `flashcards/views.py`, `urls.py` | Validation, throttles, 404 vs `[]`, generation outcomes, `/feedback/` removed |
+| BE | `flashcards/ai/pipeline/core.py`, `flashcard_gen.py`, `templater.py` | A failed catch-up keeps the cards already made; model client timeout. No algorithm change |
+| BE | `requirements.txt` | Django 5.2.18 LTS, DRF 3.17.2, cors-headers 4.8.0; Pillow, pytesseract, python-docx removed |
+| BE | deleted: `ai/chunker.py`, `ai/ingest.py`, `ai/prompt_cards.py`, `inspect.py` | Dead modules (nothing imported them) |
+| BE | `flashcards/tests/{test_uploads,test_access,test_throttling,test_generation,test_settings_safety}.py` (new), `fakes.py`, `test_pipeline.py` | 64 new tests; fake model failure/empty modes; F0.5 tests updated for the new contract |
+| BE | `README.md`, `.env.example` (new) | Setup and operations documentation |
+| FE | `src/source/api.js` | Structured HTTP errors (`code`, `retryAfter`, `limit`); copy chosen by error code |
+| FE | `src/study/deck.js`, `deckApi.js`, `useDeck.js` | Opaque deck ids; 404 → missing, `[]` → empty; no local guessing; no "Deck #N" |
+| FE | `src/utils/cache.js`, `App.js` | Cache `VERSION` 3 + start-up purge of older versions |
+| FE | `src/source/buildRun.js`, `src/Screens/BuildScreen.js` | `buildOutcome`: the real count, "N of M cards created" for partial builds |
+| FE | `src/Screens/UploadScreen.js` | Resume card shows name + count from the shared identity helpers, never the id |
+| FE | `index.js`, `App.js`, `package.json`, `package-lock.json` | Expo patch alignment; unused gesture-handler / reanimated / linear-gradient removed |
+| FE | `tests/f5Contract.test.mjs` (new), `tests/studyDeck.test.mjs` | Contract tests |
+
+### 36.2 Verified findings before the fix (re-audited on `b3cc888`, not copied from F0)
+
+| # | Finding (current state at F5 start) | Evidence |
+|---|---|---|
+| 1 | Hard-coded `SECRET_KEY` (`django-insecure-sx@&…`) in `settings.py` | source |
+| 2 | `DEBUG` defaulted to **True** | `config("DEBUG", default=True)` |
+| 3 | `ALLOWED_HOSTS = ["*"]`; `CORS_ALLOW_ALL_ORIGINS = True` (set twice, making the origin list dead) | source |
+| 4 | Upload "validation" = file present. A `.txt` analysed successfully; any PyMuPDF-openable format was accepted; no size or page limit; the temp file's suffix came from the client's filename | source + F0 curl |
+| 5 | Corrupt PDFs answered **500** with sanitised exception text (F0.5); every other exception text still reached clients verbatim | source |
+| 6 | `/generate/` anonymous and unlimited; no throttle classes or cache configured | source |
+| 7 | Decks addressed by sequential integer id; `hand`/`toc` world-readable; unknown deck = `200 []`, indistinguishable from empty | source + curl |
+| 8 | `/feedback/` kept DRF's `IsAuthenticatedOrReadOnly` with `SessionAuthentication`: anonymous POST → 403; it took global card ids, so even if opened it would let anyone bump any card's counters | source |
+| 9 | Zero cards → **500** "Model returned zero cards"; a deck could be created with zero cards if every card lacked front/back (the check ran before filtering); an exception in the catch-up pass discarded all cards already made; warnings didn't state created vs requested, so a short build could look complete | source |
+| 10 | `.chunks.pkl` was written and deleted on every generate (F0.5 cleanup) but never read | source |
+| 11 | **Django 5.0.4 on Python 3.14 with DEBUG off: any 5xx crashes** in `Context.__copy__` (`'super' object has no attribute 'dicts'`) | reproduced with a corrupt PDF |
+| 12 | Django 5.0 is past end of support (April 2025) and officially supports Python ≤3.12; DRF 3.16 stops at 3.13; cors-headers 4.4.0 at Django 5.1 / Python 3.12 | PyPI metadata |
+| 13 | Root logging at DEBUG (logs model output excerpts); no model-call timeout | source |
+| 14 | `deck_name` (200) and section titles (200) were not trimmed: harmless on SQLite, an error on a stricter database | source |
+| 15 | Unused requirements (Pillow, pytesseract, python-docx) and dead modules | import graph |
+| 16 | Frontend: Expo Doctor 16/18; three unused native packages | doctor, import graph |
+
+### 36.3 Settings
+
+- `DJANGO_DEBUG` defaults to **false**. With DEBUG off, `DJANGO_SECRET_KEY` (≥50 characters, not `django-insecure-…`) and `DJANGO_ALLOWED_HOSTS` (no `*`) are **required**: the process refuses to start (`ImproperlyConfigured`) rather than run insecurely.
+- Local development: `DJANGO_DEBUG=true` alone (`cp .env.example .env`) gives a fixed dev-only key, the localhost host names and any `http://localhost|127.0.0.1:<port>` CORS origin.
+- CORS: explicit `DJANGO_CORS_ALLOWED_ORIGINS`; `*` refused; `CORS_ALLOW_CREDENTIALS = False`; only `/api/`; `Retry-After` exposed.
+- CSRF: the API has no authentication classes and sets no cookies, so a cross-site request carries no credential to abuse; DRF's `api_view` views are CSRF-exempt and nothing else is mounted. Secure cookie flags are on with DEBUG off anyway.
+- `OPENAI_API_KEY` is optional (S14): without it `/generate/` answers 503 and `check`/`migrate`/analysis work.
+- HTTPS knobs (`DJANGO_SECURE_SSL_REDIRECT`, `…_HSTS_*`, `…_PROXY_SSL_HEADER`) are opt-in; logging is INFO.
+- Tests: `manage.py test` selects `flashsite/test_settings.py`, which forces production-style placeholder values (DEBUG off, a fixed non-secret key, a fake model key that is never used). No `.env` needed. **Test command is now simply `python manage.py test flashcards`.**
+
+### 36.4 Upload protections
+
+Server-side, whatever the picker did (`flashcards/uploads.py`): size checked **while the body is received** by the first upload handler (oversized bodies are read and discarded, never written to disk, and the client still gets the 413) → presence → declared type (PDF/octet-stream/empty only) → `%PDF-` signature in the first 1 KB → PyMuPDF opens it **as a PDF** (no more format sniffing by suffix) → not password-protected → page limit → at least one page with selectable text. Defaults: 20 MB, 200 pages (`FLASH_MAX_UPLOAD_MB`, `FLASH_MAX_PDF_PAGES`).
+
+The accepted file is copied to a private temp file under a server-chosen name (`flash-upload-*.pdf`) and removed when the request ends, on every path. **Windows finding fixed on the way:** an exception raised inside PyMuPDF keeps its document (and the open file) alive through the traceback, so the old `finally: unlink` silently failed for corrupt PDFs on Windows. Errors are now raised only after the failing frames are released, documents are closed in `finally`, and unexpected failures are logged as text (a retained log record would hold the file open); a deliberately hostile test keeps a document open while failing. The unused `.chunks.pkl` is no longer written (`cache_chunks=False`), and still cleaned up if it ever is.
+
+### 36.5 Throttling and cost
+
+- DRF throttles, one scope per kind of work, keyed by client IP, rates from settings on every request: `generate` 10/hour, `analyze` 30/hour, `read` (hand/toc) 120/minute. `health` is unthrottled. Throttled requests never reach the model.
+- **Server-wide daily generation budget** (`FLASH_GENERATION_DAILY_LIMIT`, default 100 per UTC day; 0 turns generation off): the only control IP rotation can't bypass. It is counted after validation, so junk uploads and bad plans don't spend it.
+- Counters live in Django's cache: `locmem` by default (per process, reset on restart — verified live), or `FLASH_CACHE=database` (shared across workers, survives restarts; non-atomic increments may overshoot slightly). No Redis, no Celery.
+- `DJANGO_NUM_PROXIES` for correct client IPs behind a proxy (tested).
+- 429 bodies say when to retry ("Try again in about 53 minutes") and carry `Retry-After`.
+
+### 36.6 Deck access design
+
+- `Deck.public_id`: 22 URL-safe characters (`secrets.token_urlsafe(16)`, 128 bits), unique, indexed. The integer primary key stays internal.
+- **The API's `deck_id` field and query parameter now carry the public id** (string). Field and parameter names are unchanged, so the request contract and the frontend's plumbing are unchanged; the *type* changed (int → string), deliberately. Card rows report the same id as `deck`. Integer ids → `404 deck_not_found`.
+- Migration `0012` backfills a random id for every existing deck. Pre-F5 clients only knew integer ids, so pre-F5 decks are unreachable from those clients (by design — there's no safe way to map an integer to a token without re-opening enumeration).
+- Access model: **anyone holding the id can read the deck** (an unlisted link). No accounts were added.
+- Frontend: the route param `deckId` holds the public id; `isValidDeckId` accepts only that format; the "Deck #N" label is gone everywhere (a source-scan test guards it; mutation-checked against the old `UploadScreen`). Cache `VERSION` 2 → **3**; `purgeOldCacheVersions()` runs at start-up, so pre-F5 resume entries, hands, TOCs and templates disappear instead of offering a deck that can't open (verified live). Ids are random, so cache keys can no longer collide across servers or database resets (closes the F3/F4 "ids not namespaced by API base" debt).
+
+### 36.7 Missing vs empty
+
+| Server state | `hand` / `toc` | Frontend state |
+|---|---|---|
+| deck exists, has cards | 200 `[…]` | ready |
+| deck exists, no cards | **200 `[]`** | empty — "This deck has no cards. The deck exists on the server, but it has no cards to study." |
+| unknown or deleted deck | **404 `deck_not_found`** | missing — "This saved deck is no longer available…", Forget this deck |
+| `deck_id` absent | 400 `deck_id_required` | — |
+
+The F3 `expectsCards` heuristic is removed. A 404 drops that deck's cached hand/TOC (the Picker's check drops both); other errors keep healthy cache (offline study still works). 429 on a study load is a "The server is busy" error state with Try again. `generate` never creates an empty deck, so "empty" only arises from manual data changes.
+
+### 36.8 Feedback endpoint: decision B (removed)
+
+The counters had no product value: nothing reads `right`/`wrong`, the MC "Keep score" tally is deliberately on-device (F3 §34.7), and opening the endpoint anonymously would let anyone increment any card's counters by sequential card id. `/feedback/` is removed (404). The columns stay (no migration churn) and `hand` still reports them for response compatibility; they are always 0.
+
+### 36.9 Generation outcomes and errors
+
+- Every requested card made → 201, `partial: false`.
+- Fewer cards → still 201, `partial: true`, first warning `"Created N of M requested cards."`; `cards_created` is always the real count.
+- A short section gets its existing warning; catch-up cards add `"N cards were added under "Mixed topics" to make up the total…"` and appear in `per_section` (planned 0). Previously a catch-up-filled deck could carry shortfall warnings with no explanation.
+- No cards, or the model unreachable → **502 `generation_failed`**, nothing saved (validated live: deck count unchanged). A failed catch-up keeps the cards already made.
+- No `OPENAI_API_KEY` → 503 `generation_unavailable`. Daily budget spent → 429 `generation_limit_reached`.
+- Plans are validated: unreadable/non-list JSON, all-zero, or more than 30 cards → 400 `invalid_allocations` (the frontend never sends these).
+- Every error body is `{detail, code}` (+`limit_mb` / `limit_pages` / `retry_after` where relevant); unexpected failures are a generic 500 with the traceback in the server log only; JSON also for unknown URLs, wrong methods and disallowed hosts. Full table in the backend README.
+- Frontend: `RequestError` carries `code`, `retryAfter`, `limit`; analyze/generate copy is chosen by code (not-a-PDF, unreadable, password-protected, no text, too many pages with the limit, too large with the limit, too many requests with the wait, generation failed, unavailable, daily limit, plan rejected). The pre-F5 status/text fallbacks remain for older servers. Build's review screen title is "6 of 9 cards created" with the heading "Fewer cards than you asked for" when partial.
+
+### 36.10 Python / Django
+
+Installed: Python **3.14.7** only. Narrowest officially supported set covering 3.14 (from PyPI classifiers): **Django 5.2.18** (5.2 LTS, support to April 2028; first line listing 3.14), **DRF 3.17.2** (3.16.x lists ≤3.13), **django-cors-headers 4.8.0** (first with Django 5.2 + Python 3.14). Supported Python for the pinned set: 3.10–3.14 (verified on 3.14 only). Migration `0011` was already "Generated by Django 5.2.4", so the author's environment was on 5.2. Proof: the suite passes with the F0.5 `AdminEmailHandler` patch **removed**, and a 5xx test under DEBUG off guards the regression. openai 1.96.1 and PyMuPDF 1.26.3 unchanged.
+
+### 36.11 Database
+
+SQLite unchanged (no demo blocker found). Adequate for local use and a single-host demo (short writes in one transaction; model calls hold no lock). Limits: one host, serialised writers (5 s busy timeout), ephemeral filesystems need a volume. Code is ORM-only and portable; string fields are now trimmed to column sizes. Details in the backend README.
+
+### 36.12 Frontend platform
+
+**Expo alignment.** The two Doctor findings on the F4 tree were the same as F0: `@expo/metro-config` 0.20.17 (expected ~0.20.18) and `@expo/metro-runtime` 5.0.4 → ~5.0.5, slider 4.5.7 → 4.5.6, `expo` 53.0.20 → ~53.0.27, `react-native` 0.79.5 → 0.79.6. `npx expo install --fix` applied exactly those (metro-config follows `expo`). Still SDK 53. **Expo Doctor 18/18.** npm re-sorted `package.json` keys alphabetically; no other change.
+
+**Dependencies.**
+
+| Package | Decision | Evidence |
+|---|---|---|
+| `@react-native-community/slider` | **kept** | imported by `CardCountSlider.js` (native); in Android/iOS bundles (`RNCSlider`), absent from web |
+| `expo-linear-gradient` | removed | no importer anywhere (app or libraries) |
+| `react-native-reanimated` | removed | no importer; only `babel-preset-expo` auto-added its plugin because it was installed; it was nevertheless pulled into the web bundle |
+| `react-native-gesture-handler` | removed | only a side-effect `import` in `index.js`/`App.js` (needed by the JS stack / drawer, not by `native-stack`); `react-native-screens`' gesture/reanimated integrations are opt-in subpath entries that nothing imports |
+| `expo-constants` | unchanged (still undeclared; resolved through `expo`) | not flagged by Doctor; declaring it is a one-line follow-up |
+
+Bundles: web 1.67 MB → 0.90 MB (841 → 530 modules), Android 1152 → 885, iOS 1149 → 883.
+
+**Web/native slider:** F4's split unchanged (web range input, native community slider); the F2 plan reducer is untouched.
+
+**Browser history: deferred.** React Navigation's web `linking` serialises route params into the URL. Here that would put Build's params — the picked file (on web a base64 data-URI of the whole PDF) and the plan — into the address bar; a reload of Build or TOC can't be reconstructed (no file, `returnTo`/jump tokens); the study URLs would expose the deck id (now an access token) to history and referrers; and F6 will embed the app in a portfolio page whose own URL ownership isn't decided. Navigation isn't broken for normal demo use: every screen has in-app Back/Home, and browser Back simply leaves the app (one history entry). Revisit in F6 with an explicit route table and param stringify rules.
+
+### 36.13 Tests and checks
+
+| Check | Result |
+|---|---|
+| BE `manage.py test flashcards` | ✅ **86/86** (22 F0.5, updated for the new contract, + 64 F5), ~5 s, three consecutive runs, no network, no `.env` |
+| BE `check` (DEBUG on; and production env) | ✅ no issues |
+| BE `makemigrations --check` | ✅ no changes (0012 matches the model) |
+| BE clean install (`git archive` of `9b9239d2fe74232fc0e53a6f2b537ba4d955ba5c` → new Python 3.14.7 venv → `pip install -r requirements.txt`) | ✅ exit 0, `pip check` clean; 86/86; `check` clean; no migration drift |
+| FE `npm ci` / `npm test` | ✅ / ✅ **208/208** (195 + 13 net new) |
+| FE `expo export` web / android / ios | ✅ all exit 0 (530 / 885 / 883 modules) |
+| FE Expo Doctor | ✅ **18/18** |
+
+New backend tests by area: uploads 14 (missing, empty, declared type, signature, unreadable, encrypted, no text, page limit, size limit at the handler and the file, disk-spooled uploads, 415, alias, no temp files, no model calls); access 11 (opaque id, integer ids refused, unknown/malformed ids, missing param, explicit empty 200, deleted → 404, uniqueness, `/feedback/` gone, counters, migration backfill via `MigrationExecutor`); throttling 10 (per-client, scopes, reads, junk counted, health, proxy IP, daily budget shared, rejects don't spend it, 0 = off, UTC reset); generation/errors 18 (full, catch-up explained, partial explicit, failed catch-up keeps cards, no-plan shortfall, zero cards, outage, escaped model error, missing key, generic 500 + Windows file lock, 5xx with DEBUG off, invalid plans, >30, long names trimmed, 405, 404, disallowed host, error shape); settings 11 (subprocess, hermetic env: secret required, weak/hard-coded keys refused, hosts required, `*` refused, CORS `*` refused, invalid values, production profile, dev profile, tunables, three `check --deploy` profiles pinned).
+
+New frontend tests (13 net): structured errors and `Retry-After`; copy per error code with limits and waits; `waitPhrase`; `buildOutcome`; partial builds stay on Build with the real count saved; 404 → missing with cache drop; empty `[]`; other errors keep cache; busy state; opaque-id validation; no "Deck #" in `src` (mutation-checked); cache v3 purge (idempotent, never throws).
+
+### 36.14 `check --deploy` (placeholder production values)
+
+| Profile | Warnings | Classification |
+|---|---|---|
+| Required variables only | W004 (HSTS), W008 (SSL redirect) | Hosting layer: TLS is terminated by the host/proxy; enable with `DJANGO_SECURE_SSL_REDIRECT` / `DJANGO_SECURE_HSTS_SECONDS` once HTTPS is confirmed end to end |
+| + redirect + HSTS | W005 (includeSubDomains), W021 (preload) | Domain owner's decision: binds every subdomain / submits to browser preload lists |
+| + both domain-wide flags | **none** | — |
+
+All three are pinned by tests. Before F5 the same command reported W004, W008, W009 (insecure key), W012/W016 (cookies), W018 (DEBUG).
+
+### 36.15 Integrated local verification
+
+**Setup:** the backend from the working tree copied to scratch, run with `runserver` under a **production-style environment** (DEBUG off, random 86-character key, `ALLOWED_HOSTS=127.0.0.1,localhost`, `CORS_ALLOWED_ORIGINS=http://127.0.0.1:8090`, limits lowered for the test: 2 MB, 40 pages, generate 12/hour); an OpenAI-compatible stub on `OPENAI_BASE_URL` serving the backend's own `FakeOpenAI` (modes: normal / empty / fail / empty sections); the exported F5 web bundle served statically; headless Edge driven over the DevTools protocol with real mouse/keyboard events and the file chooser intercepted (scratch scripts, not committed). Synthetic PDFs only.
+
+**API (curl):** analyze OK; `.txt` renamed `.pdf`, declared `text/plain`, corrupt, password-protected, blank/scanned, 50 pages, 3 MB, no file, JSON body, GET → the expected 400/413/415/405 with fixed messages; `/feedback/` 404; unknown URL JSON 404; foreign `Host` JSON 400. CORS preflight echoes only the configured origin (no credentials header); `evil.example` and `localhost:8081` get nothing. Generate: full (8/8), catch-up (warnings explain "Mixed topics"), partial (201, 6 of 9, `partial: true`), zero cards and stub outage (502, deck count unchanged). `hand`/`toc` by public id 200; integer ids 1–3 and unknown ids 404.
+
+**Browser walk (19/19):** legacy v2 cache purged and no stale resume card; one analyze per pick; build → Picker with an opaque id saved for resume; Picker subtitle without any id; one `toc` check by public id; Flip Drill (question side, excerpt hidden before reveal, Space reveals answer + page, → next); TOC lists and jumps to card 3; template sheet with real ranges, Escape closes it; MC answered with key 1 shows result + source; HTML export downloads `uneven-toc-cards.html` with question/answer sheets; **0 console errors**.
+
+**Failure walk (28/29):** each invalid upload (corrupt, scanned, locked, 50 pages → "limit is 40 pages", 3 MB → "limit is 2 MB", text-as-PDF) shows its own message and keeps Build disabled; 390×844 error state has no horizontal overflow; partial build shows "2 of 3 cards created" + "Fewer cards than you asked for" + the server's warning, and the Picker shows 2 cards; failed build shows "No cards could be written… Nothing was saved… HTTP 502" with no deck row created; **throttled** generate shows "Too many requests — Try again in about 53 minutes (HTTP 429)"; backend blocked → Picker explains and Flip Drill studies from the cached hand; deck deleted server-side → 404 → "no longer available", modes hidden, cached hand/TOC dropped, Forget returns to Upload and clears the resume entry; deck with no cards → "This deck has no cards" (not "no longer available"); the partial deck studies in MC. The one flagged item was the console check: it listed F2's intentional `console.error` diagnostics for the six deliberately failed uploads (`[UploadScreen] analyze failed …`), which the walk's filter didn't exclude — expected, no other errors.
+
+**Found and fixed during the walk:** the Upload resume card still rendered `Deck #<id>`, which with opaque ids printed the token (fixed, plus the source-scan test); a disallowed `Host` got Django's HTML 400 (now JSON).
+
+**Secrets:** the web bundle contains none of: the secret key, the model key, `OPENAI`, `DJANGO_`, `SECRET_KEY`, `django-insecure`, `api.openai.com`, the stub port. API responses (success and every error) contain no key, no temp path, no `flash-upload-` name, no traceback, and set no cookies. `%TEMP%` held 0 `flash-upload-*` / `.chunks.pkl` files after all live traffic.
+
+### 36.16 Native QA
+
+- **Native bundle verified:** Android and iOS `expo export` exit 0 after every change (885 / 883 modules); `RNCSlider` present, gesture-handler and reanimated absent.
+- **Native runtime: not verified.** No Android SDK, emulator or device, and no macOS, on this machine (unchanged from F4 §35.11). Removing gesture-handler/reanimated and the RN 0.79.6 patch are therefore bundle-verified only; the first device run should cover launch, navigation (native-stack), swipe (PanResponder), haptics and the native slider.
+
+### 36.17 Remaining caveats (deployment)
+
+- Not deployed, not load-tested; no Dockerfile/process manager/CI.
+- Throttles are per-process with the default cache; IP limits are evadable; the daily budget is the cost ceiling.
+- Generation is synchronous (tens of seconds per request, worker held); a client that disconnects doesn't cancel server work (F2 §33.11).
+- Untrusted PDFs are parsed by native code (MuPDF); size/page limits bound the work — run with OS-level memory/CPU limits and keep PyMuPDF patched.
+- Deck ids are bearer tokens: anyone with the id reads the deck.
+- SQLite: single host; use a persistent volume.
+- HTTPS/HSTS are the host's job (§36.14). Cap the request body at the proxy too.
+- Card ids are still global integers in responses (no endpoint accepts them any more).
+- Frontend still doesn't declare `expo-constants` (works through `expo`).
+
+### 36.18 F6 readiness
+
+- Stable contract: `deck_id` is an opaque string; fixtures must use a 16–32-character URL-safe id (e.g. 22 characters) or `isValidDeckId` rejects them. `hand`/`toc`/`template` shapes are otherwise unchanged; `generate` adds `partial`; cards' `deck` is the public id.
+- `useDeck`'s `deckSource` seam is untouched; missing/empty now come from HTTP status, so a fixture source should return items (or throw a `RequestError` with `status: 404` to simulate missing).
+- Cache v3: a demo that seeds storage must use `fcache:v3:` keys.
+- Browser history is open for F6 (§36.12), to be decided together with the portfolio embedding.
+- Not started in F5: fixture deck, portfolio seam, screenshots, Lighthouse, case-study evidence.
+
+### 36.19 Default branches and scope
+
+Frontend `master` and backend `main` untouched. No deployment, no real OpenAI call (the SDK always pointed at the local stub or was patched), no private documents. F6 not started.

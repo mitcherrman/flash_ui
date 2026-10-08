@@ -2,10 +2,11 @@
 // Loading a deck's cards and table of contents (F3). Pure: `fetch` and the
 // cache store are passed in, so `npm test` drives every path.
 //
-// Contract (unchanged; backend b3cc888):
+// Contract (backend F5):
 //   GET /api/flashcards/hand/?deck_id&n=all&order=doc  → CardSerializer[]
 //   GET /api/flashcards/toc/?deck_id                   → [{id, ordinal, front, section, page, context}]
-// Both return 200 [] for an unknown deck id.
+// `deck_id` is the deck's opaque public id (from generate). An unknown deck
+// is 404 `deck_not_found`; an existing deck with no cards is 200 [].
 //
 // Cache precedence (keys/TTL unchanged from F0 §11):
 //   • hand / toc: a cached, NON-EMPTY list younger than 6 h is used first;
@@ -13,8 +14,10 @@
 //     went missing can't be pinned as "empty" (or masked) for 6 hours.
 //   • verifyDeck() (the Picker) always asks the server, refreshes the toc
 //     cache, and drops a cached hand whose card ids no longer match.
+//   • A 404 drops the cached list it was asked for (verifyDeck: both), so a
+//     deck the server no longer has can't be studied from a stale copy.
 
-import { RequestError } from "../source/api.js";
+import { RequestError, httpError } from "../source/api.js";
 import { isStaleHand } from "./deck.js";
 
 export const HAND_PATH = "/api/flashcards/hand/";
@@ -86,14 +89,15 @@ export async function getJSON({
       if (signal?.aborted || isAbort(cause)) throw new RequestError({ kind: "aborted", cause });
       throw new RequestError({ kind: "network", status: res.status, detail: String(cause?.message ?? cause), cause });
     }
-    if (!res.ok) {
-      throw new RequestError({ kind: "http", status: res.status, detail: String(body || "").slice(0, 400) });
-    }
+    let json;
     try {
-      return body ? JSON.parse(body) : null;
+      json = body ? JSON.parse(body) : null;
     } catch {
+      if (!res.ok) throw httpError(res, null, body);
       throw new RequestError({ kind: "response", status: res.status, detail: "Response was not JSON" });
     }
+    if (!res.ok) throw httpError(res, json, body);
+    return json;
   } finally {
     if (timer != null) clearTimer(timer);
     signal?.removeEventListener?.("abort", forward);
@@ -101,6 +105,11 @@ export async function getJSON({
 }
 
 const isObj = (x) => !!x && typeof x === "object";
+
+/** The server says this deck doesn't exist (as opposed to having no cards). */
+export function isDeckNotFound(err) {
+  return err?.kind === "http" && err.status === 404;
+}
 
 /** Cards with a question and an answer; null when the payload isn't a card list. */
 export function normalizeHand(data) {
@@ -134,7 +143,13 @@ export async function loadList({ key, url, normalize, store, fetchImpl, signal, 
     const items = Array.isArray(cached) ? normalize(cached) : null;
     if (items && items.length) return { items, source: "cache" };
   }
-  const data = await getJSON({ fetchImpl, url, signal });
+  let data;
+  try {
+    data = await getJSON({ fetchImpl, url, signal });
+  } catch (err) {
+    if (isDeckNotFound(err)) await quiet(() => store.del(key));
+    throw err;
+  }
   const items = normalize(data);
   if (!items) throw new RequestError({ kind: "response", detail: "Unexpected response shape" });
   if (items.length) await quiet(() => store.set(key, items, DECK_TTL_MS));
@@ -152,17 +167,23 @@ export function loadToc({ apiBase, deckId, store, fetchImpl, signal, force }) {
 
 /**
  * Ask the server whether the deck still exists (the Picker, before study).
- * `toc` is the narrowest existing endpoint: AllowAny, one row per card, no
- * answers or excerpts. Resolves to { items, droppedStaleHand }:
+ * `toc` is the narrowest endpoint: one row per card, no answers or excerpts.
+ * Resolves to { items, droppedStaleHand }:
  *   • non-empty → refresh the toc cache; drop a cached hand whose ids differ
- *     (the id was reused by another deck, or the deck was rebuilt);
- *   • empty     → drop the hand and toc caches for this id (they describe a
- *     deck the server no longer has). Template/resume data is kept until the
- *     learner chooses "Forget this deck".
- * Throws RequestError on failure (the caller maps it to a state).
+ *     (the deck was rebuilt, or a different server answered);
+ *   • empty     → the deck exists but has no cards: drop both caches.
+ * A 404 (the server doesn't have this deck) drops both caches and is thrown,
+ * like any other failure; the caller maps it to the "missing" state.
+ * Template/resume data is kept until the learner chooses "Forget this deck".
  */
 export async function verifyDeck({ apiBase, deckId, store, fetchImpl, signal }) {
-  const { items } = await loadToc({ apiBase, deckId, store, fetchImpl, signal, force: true });
+  let items;
+  try {
+    ({ items } = await loadToc({ apiBase, deckId, store, fetchImpl, signal, force: true }));
+  } catch (err) {
+    if (isDeckNotFound(err)) await quiet(() => store.del(handKey(deckId)));
+    throw err;
+  }
   let droppedStaleHand = false;
   if (items.length) {
     const cachedHand = await quiet(() => store.get(handKey(deckId)));

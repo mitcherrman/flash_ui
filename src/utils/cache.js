@@ -1,7 +1,11 @@
 // src/utils/cache.js
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const VERSION = 2; // bump when cache shape changes
+// Bump when the cache's shape or key meaning changes; older versions are
+// purged at start-up (purgeOldCacheVersions), never migrated.
+// v3 (F5): deck ids are the server's opaque public ids. v2 keys and resume
+// entries used integer ids that the server no longer accepts.
+const VERSION = 3;
 const PREFIX  = `fcache:v${VERSION}:`;
 
 function key(s) { return `${PREFIX}${s}`; }
@@ -27,6 +31,19 @@ export async function getCache(k) {
 
 export async function delCache(k) {
   try { await AsyncStorage.removeItem(key(k)); } catch {}
+}
+
+// Removes every key written by an older cache version (other apps' keys
+// and the current version are left alone). Safe to call on every start.
+export async function purgeOldCacheVersions() {
+  try {
+    const keys = await AsyncStorage.getAllKeys();
+    const old = keys.filter((k) => /^fcache:v\d+:/.test(k) && !k.startsWith(PREFIX));
+    if (old.length) await AsyncStorage.multiRemove(old);
+    return old.length;
+  } catch {
+    return 0; // storage trouble never blocks the app
+  }
 }
 
 export async function clearAllCache() {
