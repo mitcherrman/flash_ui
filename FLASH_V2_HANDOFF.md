@@ -2299,7 +2299,7 @@ Not changed (documented): the "Show source excerpt" switch is RNW's 40×20 nativ
 | Android / iOS export | ✅ 886 / 884 modules |
 | Expo Doctor | ✅ 18/18 |
 | Backend at `9b9239d` (clean venv, Python 3.14.7): tests / `check` / migrations / `check --deploy` | ✅ 86/86 / clean / no drift / W004 + W008 only |
-| Fresh clone of the final frontend SHA | §37.12 |
+| Fresh clone of the final frontend SHA | ✅ §37.12 |
 
 **Responsive matrix** (demo, headless Edge, touch emulation at 390/844/768). Screens: source screen, Picker, template sheet, Flip question, Flip answer + source, TOC, Flip unknown-page card, MC question, MC answered. Viewports: 390×844, 844×390, 768×1024, 1280×800, 1440×900. **45/45** with `scrollWidth == innerWidth`, 0 elements past the right edge, and every required control in view and hit-testable (`elementFromPoint`).
 

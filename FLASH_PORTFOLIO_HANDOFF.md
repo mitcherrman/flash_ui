@@ -147,7 +147,7 @@ Do not add boxes for queues, workers, Redis, Celery, Docker, CDN, auth or a prod
 | Backend `check` / `makemigrations --check` / `check --deploy` | clean / no drift / only W004 + W008 (HTTPS is the host's job) |
 | Expo exports (web / Android / iOS) | all succeed (web 531 modules app, 523 demo; Android 886; iOS 884) |
 | Expo Doctor | 18/18 |
-| Fresh clone of the final frontend SHA | `npm ci`, tests, web + demo exports succeed (§37 of the engineering handoff) |
+| Fresh clone from GitHub at `3bea26a` | `npm ci`, 234/234, web / demo / Android / iOS exports, Expo Doctor 18/18; demo bundle byte-identical to the verified one |
 | Demo walk, headless Edge, real input events | 5 viewports × 9 states: no overflow, required controls in view and clickable; 3 static requests, 0 console messages, 0 storage keys |
 | API smoke against the certified backend + local fake model | analyze, full and partial generate, invalid/oversized uploads, missing/empty deck, throttling, opaque ids, no integer enumeration — all as designed (§19) |
 | Lighthouse 12.8.2 (local, headless Edge 154) | demo: Accessibility 100, Best Practices 100, Performance desktop 99–100, mobile 79 (no compression) / 98 (gzip) |
@@ -299,7 +299,7 @@ The real app keeps **no web URL routing** (F5 decision, re-confirmed): React Nav
 
 | Repo | Branch | SHA |
 |---|---|---|
-| Frontend `mitcherrman/flash_ui` | `flashv2/f6-portfolio-certification` | the head of this branch; F6 implementation commit and final SHA recorded in `FLASH_V2_HANDOFF.md` §37.12 |
+| Frontend `mitcherrman/flash_ui` | `flashv2/f6-portfolio-certification` | implementation `3bea26a3f7e1e57c966c0bca139426a2337e6073`; the branch head is the documentation commit on top of it (verified fresh clone, `FLASH_V2_HANDOFF.md` §37.12) |
 | Backend `mitcherrman/flashcard_django` | `flashv2/f5-demo-hardening` | `9b9239d2fe74232fc0e53a6f2b537ba4d955ba5c` (certified F5, unchanged in F6) |
 
 ## 24. Portfolio copy (verified source copy, not final page design)
