@@ -299,7 +299,7 @@ The real app keeps **no web URL routing** (F5 decision, re-confirmed): React Nav
 
 | Repo | Branch | SHA |
 |---|---|---|
-| Frontend `mitcherrman/flash_ui` | `flashv2/f6-portfolio-certification` | implementation `3bea26a3f7e1e57c966c0bca139426a2337e6073`; the branch head is the documentation commit on top of it (verified fresh clone, `FLASH_V2_HANDOFF.md` §37.12) |
+| Frontend `mitcherrman/flash_ui` | `flashv2/f6-portfolio-certification` | implementation `3bea26a3f7e1e57c966c0bca139426a2337e6073`; the branch head adds documentation only on top of it (verified fresh clone, `FLASH_V2_HANDOFF.md` §37.12) |
 | Backend `mitcherrman/flashcard_django` | `flashv2/f5-demo-hardening` | `9b9239d2fe74232fc0e53a6f2b537ba4d955ba5c` (certified F5, unchanged in F6) |
 
 ## 24. Portfolio copy (verified source copy, not final page design)

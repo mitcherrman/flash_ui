@@ -2331,4 +2331,14 @@ Everything in §36.17; the a11y residue in §37.6; no URL routing; the native de
 
 ### 37.12 SHAs and fresh clone
 
-Implementation commit and fresh-clone results: recorded in the follow-up commit below this line.
+| Item | Value |
+|---|---|
+| F6 base | `dd20dbbd360f64468210dfd0133709372d78692b` (F5 frontend) |
+| F6 implementation commit | `3bea26a3f7e1e57c966c0bca139426a2337e6073` (pushed) |
+| Documentation commits on top | `70ae43a` (portfolio handoff SHA record) and the commit adding this table; no code after `3bea26a` |
+| Backend (certified, unchanged) | `9b9239d2fe74232fc0e53a6f2b537ba4d955ba5c` |
+| Default branches | frontend `master` `f60dd52`, backend `main` `18a6928` (untouched) |
+
+**Fresh clone** (`git clone` from GitHub at `3bea26a`, no `src/env.js`, no `.env.local`): `npm ci` ✅; `npm test` ✅ 234/234; web export ✅ 531 modules (0 demo strings); `npm run export:demo` ✅ 523 modules, byte-identical to the bundle used for every walk, screenshot and Lighthouse run; Android ✅ 886; iOS ✅ 884; Expo Doctor ✅ 18/18.
+
+**Modernization status:** F0 → F6 complete. Nothing merged, nothing deployed.
