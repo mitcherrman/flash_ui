@@ -7,7 +7,9 @@
 //           | error (reason)
 //
 // All network/caching rules live in the pure ./deckApi.js and ./deck.js.
-// F6 (portfolio demo) can serve a fixture deck by swapping `deckSource`.
+// `deckSource` is the only way the study screens get deck data. The normal
+// app uses the network/cache implementation below; the offline portfolio
+// demo (src/demo, a separate build) swaps in a fixture source.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { API_BASE } from "../config";
 import { deckStore, loadLastDeck, loadTemplate } from "../utils/cache";
@@ -26,6 +28,8 @@ export const deckSource = {
     const [meta, template] = await Promise.all([loadLastDeck(), loadTemplate(deckId)]);
     return { meta, template };
   },
+  // The study template Build saved on this device (no network), or null.
+  loadTemplate: (deckId) => loadTemplate(deckId),
 };
 
 const NO_DECK = Object.freeze({ status: "error", reason: "no-deck" });
@@ -145,7 +149,8 @@ export function useSavedTemplate(deckId) {
     let alive = true;
     setTemplate(null);
     if (!isValidDeckId(deckId)) return undefined;
-    loadTemplate(deckId)
+    deckSource
+      .loadTemplate(deckId)
       .then((t) => alive && setTemplate(t || null))
       .catch(() => alive && setTemplate(null));
     return () => {
@@ -160,7 +165,7 @@ export function useSavedTemplate(deckId) {
  * outline rebuilt from the deck's cards (cache-first, so usually no request).
  */
 export async function loadTemplateForViewing(deckId, title = null) {
-  const saved = await loadTemplate(deckId);
+  const saved = await deckSource.loadTemplate(deckId);
   if (saved) return saved;
   const { items } = await deckSource.loadHand(deckId);
   return items.length ? buildTemplateFromCards(items, title) : null;

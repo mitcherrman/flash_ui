@@ -57,7 +57,8 @@ export function ProductSteps({ style }) {
   return (
     <View style={[styles.steps, style]} accessibilityRole="list">
       {STEPS.map((s, i) => (
-        <View key={s.label} style={styles.step} accessibilityRole="text">
+        // A list's children must be list items (an <li> on web; F6).
+        <View key={s.label} style={styles.step} role="listitem">
           <View style={[styles.stepNum, i === 0 && styles.stepNumActive]}>
             <Text style={[styles.stepNumText, i === 0 && styles.stepNumTextActive]}>{i + 1}</Text>
           </View>

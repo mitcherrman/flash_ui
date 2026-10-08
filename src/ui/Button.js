@@ -72,6 +72,8 @@ export default function Button({
       accessibilityLabel={accessibilityLabel ?? (typeof label === "string" ? label : undefined)}
       accessibilityHint={accessibilityHint}
       accessibilityState={{ disabled: isDisabled, busy: !!loading }}
+      // react-native-web ignores accessibilityState; this reaches the DOM (F6).
+      aria-busy={!!loading}
       disabled={isDisabled}
       onPress={onPress}
       style={({ pressed, hovered }) => [

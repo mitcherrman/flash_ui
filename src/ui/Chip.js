@@ -11,6 +11,8 @@ export default function Chip({ label, selected = false, onPress, accessibilityLa
       accessibilityRole="radio"
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityState={{ checked: !!selected, selected: !!selected, disabled: !!disabled }}
+      // react-native-web ignores accessibilityState; this reaches the DOM (F6).
+      aria-checked={!!selected}
       disabled={disabled}
       onPress={onPress}
       style={({ hovered, pressed }) => [

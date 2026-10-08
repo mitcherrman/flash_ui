@@ -7,6 +7,8 @@
 > **F0.5 update:** blockers B1–B4 are fixed on `flashv2/f05-stabilization` in both repos. See **§31 F0.5 Addendum** at the end. Where §1–§30 describe F0.5-fixed behaviour (page ranges, `ordinal = 0`, `src/env.js`, `tiktoken`, `.chunks.pkl`, temp paths in errors, template title), §31 supersedes them.
 >
 > **F5 update (§36):** the backend is hardened for a small public demo. Deck ids are now opaque public ids (the API's `deck_id` is a string), unknown decks are 404, `/feedback/` is removed, errors are `{detail, code}`, and settings come from the environment. Where §1–§35 describe the API, configuration or dependencies differently, §36 supersedes them.
+>
+> **F6 update (§37):** portfolio extraction and final certification. An offline demo build (`npm run export:demo`) runs the real study screens over a synthetic fixture through the `deckSource` seam; `FLASH_PORTFOLIO_HANDOFF.md` is the portfolio-facing package. F6 also fixed web accessibility states (react-native-web ignores `accessibilityState`) and a Metro cache issue that could reuse demo transforms in a normal build. Modernization is complete; nothing is merged or deployed.
 
 Evidence labels used throughout:
 
@@ -2233,3 +2235,100 @@ All three are pinned by tests. Before F5 the same command reported W004, W008, W
 ### 36.19 Default branches and scope
 
 Frontend `master` and backend `main` untouched. No deployment, no real OpenAI call (the SDK always pointed at the local stub or was patched), no private documents. F6 not started.
+
+---
+
+## 37. F6 — Portfolio extraction and final certification
+
+**Workstream:** `FLASH-V2-F6` (2026-10-07). Frontend only, branch `flashv2/f6-portfolio-certification`, based on `dd20dbbd360f64468210dfd0133709372d78692b` (F5 frontend). Backend read only: certified F5 `9b9239d2fe74232fc0e53a6f2b537ba4d955ba5c`, unmodified (a `git archive` of it ran in scratch). No deployment, no OpenAI call, no private documents. Default branches untouched (frontend `master` = `f60dd52`, backend `main` = `18a6928`). The portfolio-facing package is **`FLASH_PORTFOLIO_HANDOFF.md`**; this section is the engineering record.
+
+### 37.1 Files
+
+| File | Change |
+|---|---|
+| `src/demo/demoSource.js` (new, pure) | Fixture-backed implementation of the `deckSource` contract; any other id → `RequestError` 404 (the "missing" state); copies on every call; derived facts for the source screen |
+| `src/demo/network.js` (new) | `blockNetwork()`: `fetch` / `XMLHttpRequest` reject locally with a logged error |
+| `src/demo/demoNav.js` (new, pure) | Source-screen navigation actions (`RESET` to `[Picker, mode]` or `[Picker]`) |
+| `src/demo/DemoSourceScreen.js` (new) | The demo's first screen: document, structure (the real `StructureSummary`), sections and cards, one grounded excerpt highlighted on its page |
+| `src/demo/DemoApp.js` (new) | Demo root: blocks the network, installs the fixture source, its own stack (`Upload` = source screen, `Picker`, `Game2`, `TOC`, `GameMC`; no `Build`) |
+| `src/demo/fixture/harbor-point-deck.json` (new) | The synthetic deck (§37.3) |
+| `index.js` | `EXPO_PUBLIC_FLASH_DEMO === "1"` ? DemoApp : App (inlined and constant-folded at build time) |
+| `metro.config.js` (new) | Expo's default config + all `EXPO_PUBLIC_*` values under `transformer` (part of the cache key) (§37.5) |
+| `scripts/export-demo.mjs` (new), `package.json` | `npm run export:demo` → `dist/demo/` with `--clear`, relative asset paths, demo title |
+| `src/study/useDeck.js` | `deckSource.loadTemplate` added; `useSavedTemplate` / `loadTemplateForViewing` read through the seam (identical behaviour in the app) |
+| `src/navigation/navTheme.js` (new), `App.js`, `src/navigation/Stack.js` | Shared nav theme and screen options, so the demo doesn't import the app's routes |
+| `src/ui/Chip.js`, `src/ui/Button.js`, `src/components/FlipDrill.js`, `src/Screens/BuildScreen.js`, `src/ui/BrandMark.js`, `src/Screens/GameMC.js`, `src/components/study/TemplateSheet.js`, `src/Screens/GamePicker.js` | Web accessibility fixes (§37.6) |
+| `.env.example` | Note: never set `EXPO_PUBLIC_FLASH_DEMO` in env files |
+| `tests/f6Demo.test.mjs` (new) | 26 tests |
+| `docs/portfolio/fixture/build_fixture.py`, `harbor-point-operations-brief.pdf` (new) | Reproducible fixture build; the synthetic source PDF |
+| `docs/portfolio/DEMO_INTEGRATION_SPEC.md`, `docs/portfolio/media/*.png` (9) (new) | Framework-neutral spec; curated screenshots |
+| `FLASH_PORTFOLIO_HANDOFF.md` (new) | Portfolio package |
+
+### 37.2 Demo architecture decision
+
+Options considered: a separate entry file (`expo export` has no entry flag; `main` is fixed), a runtime toggle (would ship in production builds), and a build-time flag. Chosen: **`EXPO_PUBLIC_FLASH_DEMO=1`, read only in `index.js`, set only by `scripts/export-demo.mjs`.** Metro inlines the value and constant-folds the conditional `require` in production builds, so each bundle contains only its own root. Verified: the normal web bundle (531 modules) has 0 fixture/demo strings; the demo bundle (523 modules) has no Upload/Build code; the Android/iOS bundles contain no demo strings. The demo reuses the real screens through the F3 `deckSource` seam (the only addition is `loadTemplate`); no study screen knows about the demo. The demo's source screen is registered under the `Upload` route name, so the screens' own "New deck" / "Back to Upload" actions land there unchanged.
+
+### 37.3 Fixture
+
+"Harbor Point Microgrid: Operations Brief": fictional, written for the demo; 6 pages, 757 words, a 4-entry outline with uneven ranges (1–2, 3–4, 5, 6). `build_fixture.py` builds the PDF with PyMuPDF, then runs the certified backend in-process through its HTTP API (Django test client, the backend's own `test_settings`, a throwaway SQLite DB). Both model seams are replaced by a scripted stand-in returning hand-written study notes and cards, and `httpx.Client.send` is blocked. 8 scripted model calls (4 template, 4 card batches). Result: 10 cards, pages `1,2,2,3,3,5,5,6,6,null`, ordinals 1..10, `partial: false`, no warnings, template `page_source: "toc"`. Card 10's excerpt is a deliberate paraphrase in the two-page section, so the real `_grounded_page` leaves it `null` ("Page unknown · Section covers pages 3–4"). The random public id is replaced by `demo-harbor-point-brief` (valid format). Re-running the script reproduces the JSON exactly.
+
+### 37.4 Offline proof
+
+- Unit: every demo-source call completes with `fetch`/`XMLHttpRequest` replaced by test-failing spies (0 calls); the guard rejects; `src/demo/*` code uses no `API_BASE`, config, storage or fetch.
+- Live (headless Edge, DevTools network log, every walk): exactly `GET /`, the JS bundle and `favicon.ico`; 0 console messages; 0 local/session storage keys; served from a sub-path (`/flash-demo/`).
+- The demo bundle still contains the unused default `http://127.0.0.1:8000` string from `src/config.js` (imported by `useDeck.js`); it is never requested.
+
+### 37.5 Verified bug: the Metro cache could ship the demo as the app
+
+Production builds inline `EXPO_PUBLIC_*` values during the Babel transform (`babel-preset-expo` `inline-env-vars`), and Metro's transform cache key (`metro-transform-worker` `getCacheKey`, which hashes `config.transformer`) does not include those values. Reproduced: `npm run export:demo` followed by a plain `npx expo export --platform web` produced a byte-identical **demo** bundle (the F0.5 "use --clear" caveat, now with real consequences). Fix: `metro.config.js` adds the sorted `EXPO_PUBLIC_*` name=value list to `config.transformer`. Verified in both directions without `--clear`: normal-after-demo → 0 demo strings; demo-after-normal → demo only. This also closes the old `EXPO_PUBLIC_API_BASE` caveat. Tested: the key differs per value (mutation: a static key fails the test).
+
+### 37.6 Verified bug: web accessibility states (react-native-web)
+
+react-native-web 0.20's `createDOMProps` ignores `accessibilityState` (it reads only `aria-*` and the deprecated `accessibility*` props). Live DOM before the fix: the MC scoring chips were `role=radio` without `aria-checked` (axe critical), the flip card had no `aria-expanded`, busy buttons no `aria-busy`. Separately, `ProductSteps` was a `<ul>` with plain `<div>` children and the MC options a `<ul>` of buttons (axe critical), and the template dialog had no accessible name.
+
+Fixes: `aria-checked` / `aria-expanded` / `aria-busy` beside `accessibilityState` (RN 0.79 maps `aria-*` to the same native state); `role="listitem"` for the steps; `role="group"` for the options; `aria-label="Study template"` on the Modal. Also, on the Picker, Escape from the template returned focus to a scroll container because the button was disabled while loading; it now stays enabled and ignores re-entry, and focus returns to it (verified with the keyboard). Lighthouse accessibility on the demo: 93 → 100. Tests: every checked/expanded/busy `accessibilityState` must carry its `aria-*` prop (mutation-checked), plus list/group/dialog-name and Picker-focus guards.
+
+Not changed (documented): the "Show source excerpt" switch is RNW's 40×20 native `<input role=switch>`. It passes axe `target-size` (WCAG 2.2 AA, by spacing) but is below the 44 px convention; replacing it would change a native control that can't be device-tested here. axe also reports `label-content-name-mismatch` (e.g. the name "Option B: …" vs the visible "B …"; TOC rows; Picker mode cards), `region` and `scrollable-region-focusable` (template sheet). None are in Lighthouse's scored set.
+
+### 37.7 Verification
+
+| Check | Result |
+|---|---|
+| `npm ci` / `npm test` | ✅ / ✅ **234/234** (208 + 26) |
+| Web export (app) / demo export | ✅ 531 / 523 modules |
+| Android / iOS export | ✅ 886 / 884 modules |
+| Expo Doctor | ✅ 18/18 |
+| Backend at `9b9239d` (clean venv, Python 3.14.7): tests / `check` / migrations / `check --deploy` | ✅ 86/86 / clean / no drift / W004 + W008 only |
+| Fresh clone of the final frontend SHA | §37.12 |
+
+**Responsive matrix** (demo, headless Edge, touch emulation at 390/844/768). Screens: source screen, Picker, template sheet, Flip question, Flip answer + source, TOC, Flip unknown-page card, MC question, MC answered. Viewports: 390×844, 844×390, 768×1024, 1280×800, 1440×900. **45/45** with `scrollWidth == innerWidth`, 0 elements past the right edge, and every required control in view and hit-testable (`elementFromPoint`).
+
+**Behaviour at every viewport:** the answer text is absent from the DOM before reveal; focus lands on the card; the reveal shows "Page 3 · concept" and the excerpt; the TOC marks and focuses the current row, search "storage" → 4 of 10, Escape clears it; the jump to card 10 shows "Page unknown · Section covers pages 3–4 · process"; a wrong MC answer waits with ✓/✗ text (glyph-only in short landscape, as designed in F4); a correct answer advances exactly once; 2 px focus ring; template "4 sections · 23 key points", Escape closes it.
+
+**Keyboard only (1440×900):** the first Tab reaches "Start Flip Drill"; the template dialog is named, focus moves inside, Escape returns focus to the opener (Picker and Flip Drill); Enter flips (`aria-expanded` true); Space on the focused Next goes to the next card; Enter on an MC option moves focus to Next; radios report `aria-checked`; the TOC focuses the current row and Escape returns to study.
+
+**Lighthouse 12.8.2** (headless Edge 154, local): demo desktop 99/100/100 (perf/a11y/best practices), 100/100/100 with gzip; mobile 79/100/100 without compression (3 runs; one earlier run 71), 98/100/100 with gzip (4 runs). The real app's first screen: 99 (desktop) and 80 (mobile) / 100 / 100. Before the a11y fixes: a11y 93 (`aria-required-children`).
+
+**API smoke** (certified backend, DEBUG off, allowlists, 2 MB / 40 pages / generate 4 per hour, local `FakeOpenAI` stub): valid analyze 200; generate 201 7/7; partial 201 `partial: true` "Created 5 of 7…"; text-as-PDF 400 `not_pdf` with 0 model calls; 3 MB 413 `limit_mb: 2`; unknown deck 404; empty deck 200 `[]`; 5th generate 429 with `Retry-After`; ids 22 characters; integer ids 1–3 → 404; `/feedback/` 404; foreign Host 400 JSON; 0 temp files left. The real app (normal build) analysed the synthetic PDF through this backend (one `POST /analyze/`, 0 console messages) for `flash-upload-plan.png`. No backend change was needed (no blocker found).
+
+### 37.8 Browser history
+
+Unchanged: no React Navigation `linking` in the app (Build params carry the PDF data URL and plan; deck ids are bearer tokens; Build/TOC can't be rebuilt on reload). The demo doesn't touch the URL either. A recreation may use `#mode/card` hashes (no private data).
+
+### 37.9 Native
+
+Not run on any device, emulator or simulator (none available). Android/iOS exports are build evidence only. The F6 changes are web-gated or cross-platform `aria-*` props that RN 0.79 maps to `accessibilityState`. `FLASH_PORTFOLIO_HANDOFF.md` lists "tested on devices" under Do not claim.
+
+### 37.10 Demo operations
+
+- Build: `npm ci && npm run export:demo` → `dist/demo/`. Serve statically (any path), ideally with gzip/brotli.
+- Regenerate the fixture: `python docs/portfolio/fixture/build_fixture.py <flashcard_django checkout at 9b9239d>` with the backend's requirements installed. It rewrites the PDF and the JSON deterministically; then run `npm test`.
+- Never set `EXPO_PUBLIC_FLASH_DEMO` in `.env*`.
+
+### 37.11 Remaining debt (outside F6)
+
+Everything in §36.17; the a11y residue in §37.6; no URL routing; the native device pass. Merging and deployment are owner decisions.
+
+### 37.12 SHAs and fresh clone
+
+Implementation commit and fresh-clone results: recorded in the follow-up commit below this line.

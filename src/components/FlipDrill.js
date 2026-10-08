@@ -307,6 +307,8 @@ export default function FlipDrill({
             : `Question: ${sentence(card.front)} Show the answer`
         }
         accessibilityState={{ expanded: flipped }}
+        // react-native-web ignores accessibilityState; this reaches the DOM (F6).
+        aria-expanded={flipped}
         onPress={toggleFlip}
         {...keys("Space Enter")}
       />

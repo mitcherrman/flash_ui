@@ -167,6 +167,7 @@ export default function BuildScreen({ route, navigation }) {
               accessibilityRole="progressbar"
               accessibilityLabel="Creating your deck"
               accessibilityState={{ busy: true }}
+              aria-busy
             >
               <CardStackGlyph size={56} />
             </Animated.View>

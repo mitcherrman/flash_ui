@@ -1,0 +1,723 @@
+{
+  "fixture": {
+    "id": "harbor-point-operations-brief",
+    "schema": "flash-demo-fixture/v1",
+    "synthetic": true,
+    "notice": "Synthetic, fictional content written for the Flashcard Maker offline demo. No real document, organisation or user data.",
+    "provenance": {
+      "card_text": "hand-written for this fixture (no language model was called)",
+      "computed_by_backend": [
+        "analysis (pages, words, TOC sections, recommendation)",
+        "template section page ranges and page_source",
+        "card page grounding, section, document order and ordinals"
+      ],
+      "backend_sha": "9b9239d2fe74232fc0e53a6f2b537ba4d955ba5c",
+      "method": "docs/portfolio/fixture/build_fixture.py: real backend in-process via its HTTP API (Django test client), model seams replaced by a scripted stand-in, network blocked",
+      "model_calls_scripted": {
+        "template": 4,
+        "cards": 4
+      },
+      "deck_id_note": "deck_id replaced with a fixed demo id in the backend's public-id format"
+    }
+  },
+  "document": {
+    "filename": "Harbor Point Microgrid Operations Brief.pdf",
+    "file": "docs/portfolio/fixture/harbor-point-operations-brief.pdf",
+    "title": "Harbor Point Microgrid: Operations Brief",
+    "notice": "Fictional document written for the Flashcard Maker demo. Harbor Point, its operator and every figure below are invented.",
+    "outline": [
+      {
+        "title": "Site and System Overview",
+        "page": 1
+      },
+      {
+        "title": "Storage and Dispatch",
+        "page": 3
+      },
+      {
+        "title": "Islanding and Fault Response",
+        "page": 5
+      },
+      {
+        "title": "Maintenance and Reporting",
+        "page": 6
+      }
+    ],
+    "pages": [
+      {
+        "page": 1,
+        "text": "1. Site and System Overview\n\nHarbor Point is a waterfront district microgrid that serves a ferry terminal, a cold-storage warehouse and a residential block of fourteen buildings. It can run connected to the regional utility or as an island when the utility supply is lost.\n\nGeneration comes from 2.4 MW of rooftop and canopy solar arrays. Storage is a 4 MWh lithium iron phosphate battery housed in two containers beside the warehouse. Two 800 kW biodiesel generators provide backup when solar output and stored energy cannot cover the critical load.\n\nAll of these resources meet the utility at a single point of common coupling, where a motorised breaker and a protection relay decide whether the district is connected or islanded."
+      },
+      {
+        "page": 2,
+        "text": "1.1 Control and Monitoring\n\nA central microgrid controller schedules every resource. It runs an economic dispatch cycle every five minutes, using the latest solar forecast, the battery state of charge and the measured load.\n\nFaster decisions are left to local devices. Protection relays and the battery inverter react within milliseconds, while the controller only sets their targets. Operating data is recorded by a SCADA historian at one-second resolution and retained for three years.\n\n1.2 Load Tiers\n\nLoads are grouped into three tiers so that the most important equipment is protected first. Tier 1 covers the ferry terminal emergency systems and the cold-storage compressors. Tier 2 covers the residential block's lifts, water pumps and corridor lighting. Tier 3 covers everything else, including electric-vehicle chargers and decorative lighting."
+      },
+      {
+        "page": 3,
+        "text": "2. Storage and Dispatch\n\nThe battery is the microgrid's most flexible resource, so its limits are set conservatively. While grid-connected, the battery is kept between 20% and 90% state of charge to slow cell ageing.\n\nDuring storm season, from 1 June to 30 September, the controller holds a reserve of at least 35% state of charge so that the district can island at short notice.\n\nPeak shaving is the battery's main grid-connected task. When the district's import from the utility rises above 1.8 MW, the battery discharges to hold the import at that level."
+      },
+      {
+        "page": 4,
+        "text": "2.1 Dispatch Order\n\nWhen the district must serve its own load, the controller uses solar output before anything else. Stored energy covers the remaining shortfall, and the biodiesel generators are started only when the battery falls below 25% state of charge during an island.\n\nThe generators then run at a fixed set point and recharge the battery until it reaches 60%, after which they shut down to save fuel.\n\n2.2 Battery Limits\n\nThe battery's measured round-trip efficiency is 88%. To protect its warranty, the controller limits use to one full equivalent cycle per day."
+      },
+      {
+        "page": 5,
+        "text": "3. Islanding and Fault Response\n\nThe protection relay at the point of common coupling watches the utility supply continuously. It opens the breaker and islands the district if utility voltage stays outside 0.88 to 1.10 per unit for more than two seconds, or if frequency leaves the 59.3 to 60.5 Hz band.\n\nWhen the breaker opens, the battery inverter switches to grid-forming mode within 200 milliseconds and sets the island's voltage and frequency.\n\nIf the available supply cannot carry the whole load, Tier 3 loads are shed first, then Tier 2. Tier 1 loads are never shed automatically.\n\nReconnection is never automatic. The controller resynchronises with the utility only after five minutes of stable utility voltage and an operator's confirmation."
+      },
+      {
+        "page": 6,
+        "text": "4. Maintenance and Reporting\n\nEach month, technicians run a thermal scan of every battery rack and record any cell that runs five degrees warmer than its neighbours.\n\nEach quarter, both generators are tested on a load bank at 75% of rated output for two hours.\n\nOnce a year, the operator carries out a full islanding test, witnessed by the utility, and files the results with the regional regulator.\n\nAny unplanned island, shed load or equipment fault must be written up as an incident report in the operations log within 48 hours.\n\nThe operator's headline performance target is 99.95% availability for Tier 1 loads, measured over a rolling twelve months."
+      }
+    ]
+  },
+  "analysis": {
+    "pages": 6,
+    "words": 757,
+    "words_per_page": [
+      154,
+      138,
+      105,
+      106,
+      134,
+      120
+    ],
+    "sections_count": 4,
+    "toc_sections": [
+      {
+        "title": "Site and System Overview",
+        "page_start": 1,
+        "page_end": 2,
+        "words": 292
+      },
+      {
+        "title": "Storage and Dispatch",
+        "page_start": 3,
+        "page_end": 4,
+        "words": 211
+      },
+      {
+        "title": "Islanding and Fault Response",
+        "page_start": 5,
+        "page_end": 5,
+        "words": 134
+      },
+      {
+        "title": "Maintenance and Reporting",
+        "page_start": 6,
+        "page_end": 6,
+        "words": 120
+      }
+    ],
+    "recommended_cards": 4,
+    "suggested_range": {
+      "lo": 3,
+      "hi": 5
+    },
+    "per_section_allocation": [
+      {
+        "title": "Site and System Overview",
+        "page_start": 1,
+        "page_end": 2,
+        "words": 292,
+        "cards": 1
+      },
+      {
+        "title": "Storage and Dispatch",
+        "page_start": 3,
+        "page_end": 4,
+        "words": 211,
+        "cards": 1
+      },
+      {
+        "title": "Islanding and Fault Response",
+        "page_start": 5,
+        "page_end": 5,
+        "words": 134,
+        "cards": 1
+      },
+      {
+        "title": "Maintenance and Reporting",
+        "page_start": 6,
+        "page_end": 6,
+        "words": 120,
+        "cards": 1
+      }
+    ]
+  },
+  "plan": {
+    "deck_name": "Harbor Point Microgrid Operations Brief",
+    "cards_wanted": 10,
+    "allocations": [
+      {
+        "title": "Site and System Overview",
+        "page_start": 1,
+        "page_end": 2,
+        "cards": 3
+      },
+      {
+        "title": "Storage and Dispatch",
+        "page_start": 3,
+        "page_end": 4,
+        "cards": 3
+      },
+      {
+        "title": "Islanding and Fault Response",
+        "page_start": 5,
+        "page_end": 5,
+        "cards": 2
+      },
+      {
+        "title": "Maintenance and Reporting",
+        "page_start": 6,
+        "page_end": 6,
+        "cards": 2
+      }
+    ]
+  },
+  "generate": {
+    "deck_id": "demo-harbor-point-brief",
+    "cards_created": 10,
+    "requested": 10,
+    "partial": false,
+    "warnings": [],
+    "per_section": [
+      {
+        "title": "Site and System Overview",
+        "planned": 3,
+        "created": 3
+      },
+      {
+        "title": "Storage and Dispatch",
+        "planned": 3,
+        "created": 3
+      },
+      {
+        "title": "Islanding and Fault Response",
+        "planned": 2,
+        "created": 2
+      },
+      {
+        "title": "Maintenance and Reporting",
+        "planned": 2,
+        "created": 2
+      }
+    ]
+  },
+  "template": {
+    "version": "study-template/llm-v1",
+    "title": "Harbor Point Microgrid Operations Brief",
+    "pages": 6,
+    "sections": [
+      {
+        "title": "Site and System Overview",
+        "page_start": 1,
+        "page_end": 2,
+        "page_source": "toc",
+        "items": [
+          {
+            "type": "concept",
+            "term": "What does Harbor Point serve?",
+            "definition": "A ferry terminal, a cold-storage warehouse and a 14-building residential block.",
+            "source_excerpt": "What does Harbor Point serve?: A ferry terminal, a cold-storage warehouse and a 14-building residential block.",
+            "page": 1,
+            "ordinal": 1
+          },
+          {
+            "type": "concept",
+            "term": "How much solar generation is installed?",
+            "definition": "2.4 MW of rooftop and canopy arrays.",
+            "source_excerpt": "How much solar generation is installed?: 2.4 MW of rooftop and canopy arrays.",
+            "page": 1,
+            "ordinal": 2
+          },
+          {
+            "type": "concept",
+            "term": "What energy storage does the site use?",
+            "definition": "A 4 MWh lithium iron phosphate battery.",
+            "source_excerpt": "What energy storage does the site use?: A 4 MWh lithium iron phosphate battery.",
+            "page": 1,
+            "ordinal": 3
+          },
+          {
+            "type": "concept",
+            "term": "What backup generation is installed?",
+            "definition": "Two 800 kW biodiesel generators.",
+            "source_excerpt": "What backup generation is installed?: Two 800 kW biodiesel generators.",
+            "page": 1,
+            "ordinal": 4
+          },
+          {
+            "type": "concept",
+            "term": "How often does the controller run economic dispatch?",
+            "definition": "Every five minutes.",
+            "source_excerpt": "How often does the controller run economic dispatch?: Every five minutes.",
+            "page": 1,
+            "ordinal": 5
+          },
+          {
+            "type": "concept",
+            "term": "Which loads are Tier 1?",
+            "definition": "The ferry terminal emergency systems and the cold-storage compressors.",
+            "source_excerpt": "Which loads are Tier 1?: The ferry terminal emergency systems and the cold-storage compressors.",
+            "page": 1,
+            "ordinal": 6
+          }
+        ]
+      },
+      {
+        "title": "Storage and Dispatch",
+        "page_start": 3,
+        "page_end": 4,
+        "page_source": "toc",
+        "items": [
+          {
+            "type": "concept",
+            "term": "What state-of-charge window applies while grid-connected?",
+            "definition": "20% to 90%.",
+            "source_excerpt": "What state-of-charge window applies while grid-connected?: 20% to 90%.",
+            "page": 3,
+            "ordinal": 7
+          },
+          {
+            "type": "concept",
+            "term": "What reserve is held in storm season?",
+            "definition": "At least 35%, from 1 June to 30 September.",
+            "source_excerpt": "What reserve is held in storm season?: At least 35%, from 1 June to 30 September.",
+            "page": 3,
+            "ordinal": 8
+          },
+          {
+            "type": "concept",
+            "term": "When does peak shaving start?",
+            "definition": "When utility import rises above 1.8 MW.",
+            "source_excerpt": "When does peak shaving start?: When utility import rises above 1.8 MW.",
+            "page": 3,
+            "ordinal": 9
+          },
+          {
+            "type": "concept",
+            "term": "In what order are resources used in an island?",
+            "definition": "Solar, then the battery, then the generators.",
+            "source_excerpt": "In what order are resources used in an island?: Solar, then the battery, then the generators.",
+            "page": 3,
+            "ordinal": 10
+          },
+          {
+            "type": "concept",
+            "term": "When do the generators start during an island?",
+            "definition": "When the battery falls below 25% state of charge.",
+            "source_excerpt": "When do the generators start during an island?: When the battery falls below 25% state of charge.",
+            "page": 3,
+            "ordinal": 11
+          },
+          {
+            "type": "concept",
+            "term": "What daily cycling limit protects the warranty?",
+            "definition": "One full equivalent cycle per day.",
+            "source_excerpt": "What daily cycling limit protects the warranty?: One full equivalent cycle per day.",
+            "page": 3,
+            "ordinal": 12
+          }
+        ]
+      },
+      {
+        "title": "Islanding and Fault Response",
+        "page_start": 5,
+        "page_end": 5,
+        "page_source": "toc",
+        "items": [
+          {
+            "type": "concept",
+            "term": "What voltage condition islands the district?",
+            "definition": "Voltage outside 0.88 to 1.10 per unit for more than two seconds.",
+            "source_excerpt": "What voltage condition islands the district?: Voltage outside 0.88 to 1.10 per unit for more than two seconds.",
+            "page": 5,
+            "ordinal": 13
+          },
+          {
+            "type": "concept",
+            "term": "What frequency band is allowed?",
+            "definition": "59.3 to 60.5 Hz.",
+            "source_excerpt": "What frequency band is allowed?: 59.3 to 60.5 Hz.",
+            "page": 5,
+            "ordinal": 14
+          },
+          {
+            "type": "concept",
+            "term": "How fast does the inverter form the island?",
+            "definition": "Within 200 milliseconds.",
+            "source_excerpt": "How fast does the inverter form the island?: Within 200 milliseconds.",
+            "page": 5,
+            "ordinal": 15
+          },
+          {
+            "type": "concept",
+            "term": "In what order are loads shed?",
+            "definition": "Tier 3 first, then Tier 2; Tier 1 is never shed automatically.",
+            "source_excerpt": "In what order are loads shed?: Tier 3 first, then Tier 2; Tier 1 is never shed automatically.",
+            "page": 5,
+            "ordinal": 16
+          },
+          {
+            "type": "concept",
+            "term": "When may the microgrid reconnect?",
+            "definition": "After five minutes of stable utility voltage and an operator's confirmation.",
+            "source_excerpt": "When may the microgrid reconnect?: After five minutes of stable utility voltage and an operator's confirmation.",
+            "page": 5,
+            "ordinal": 17
+          },
+          {
+            "type": "concept",
+            "term": "What sets the island's voltage and frequency?",
+            "definition": "The battery inverter in grid-forming mode.",
+            "source_excerpt": "What sets the island's voltage and frequency?: The battery inverter in grid-forming mode.",
+            "page": 5,
+            "ordinal": 18
+          }
+        ]
+      },
+      {
+        "title": "Maintenance and Reporting",
+        "page_start": 6,
+        "page_end": 6,
+        "page_source": "toc",
+        "items": [
+          {
+            "type": "concept",
+            "term": "What is checked every month?",
+            "definition": "A thermal scan of every battery rack.",
+            "source_excerpt": "What is checked every month?: A thermal scan of every battery rack.",
+            "page": 6,
+            "ordinal": 19
+          },
+          {
+            "type": "concept",
+            "term": "How are the generators tested each quarter?",
+            "definition": "On a load bank at 75% of rated output for two hours.",
+            "source_excerpt": "How are the generators tested each quarter?: On a load bank at 75% of rated output for two hours.",
+            "page": 6,
+            "ordinal": 20
+          },
+          {
+            "type": "concept",
+            "term": "What happens once a year?",
+            "definition": "A full islanding test witnessed by the utility.",
+            "source_excerpt": "What happens once a year?: A full islanding test witnessed by the utility.",
+            "page": 6,
+            "ordinal": 21
+          },
+          {
+            "type": "concept",
+            "term": "How soon must an incident be reported?",
+            "definition": "Within 48 hours, in the operations log.",
+            "source_excerpt": "How soon must an incident be reported?: Within 48 hours, in the operations log.",
+            "page": 6,
+            "ordinal": 22
+          },
+          {
+            "type": "concept",
+            "term": "What is the availability target?",
+            "definition": "99.95% for Tier 1 loads over a rolling twelve months.",
+            "source_excerpt": "What is the availability target?: 99.95% for Tier 1 loads over a rolling twelve months.",
+            "page": 6,
+            "ordinal": 23
+          }
+        ]
+      }
+    ],
+    "toc": [
+      {
+        "title": "Site and System Overview",
+        "page_start": 1,
+        "page_end": 2,
+        "page_source": "toc",
+        "ordinal_first": 1
+      },
+      {
+        "title": "Storage and Dispatch",
+        "page_start": 3,
+        "page_end": 4,
+        "page_source": "toc",
+        "ordinal_first": 7
+      },
+      {
+        "title": "Islanding and Fault Response",
+        "page_start": 5,
+        "page_end": 5,
+        "page_source": "toc",
+        "ordinal_first": 13
+      },
+      {
+        "title": "Maintenance and Reporting",
+        "page_start": 6,
+        "page_end": 6,
+        "page_source": "toc",
+        "ordinal_first": 19
+      }
+    ]
+  },
+  "hand": [
+    {
+      "id": 1,
+      "deck": "demo-harbor-point-brief",
+      "front": "What energy storage does the Harbor Point microgrid use?",
+      "back": "A 4 MWh lithium iron phosphate battery",
+      "excerpt": "Storage is a 4 MWh lithium iron phosphate battery housed in two containers beside the warehouse.",
+      "context": "concept",
+      "page": 1,
+      "section": "Site and System Overview",
+      "right": 0,
+      "wrong": 0,
+      "ordinal": 1,
+      "distractors": [
+        "A 2.4 MWh lithium iron phosphate battery",
+        "An 800 kWh vanadium flow battery",
+        "A 4 MWh nickel manganese cobalt battery"
+      ]
+    },
+    {
+      "id": 2,
+      "deck": "demo-harbor-point-brief",
+      "front": "How often does the microgrid controller run economic dispatch?",
+      "back": "Every five minutes",
+      "excerpt": "It runs an economic dispatch cycle every five minutes, using the latest solar forecast, the battery state of charge and the measured load.",
+      "context": "process",
+      "page": 2,
+      "section": "Site and System Overview",
+      "right": 0,
+      "wrong": 0,
+      "ordinal": 2,
+      "distractors": [
+        "Every second",
+        "Every fifteen minutes",
+        "Once an hour"
+      ]
+    },
+    {
+      "id": 3,
+      "deck": "demo-harbor-point-brief",
+      "front": "Which loads are classed as Tier 1?",
+      "back": "The ferry terminal emergency systems and the cold-storage compressors",
+      "excerpt": "Tier 1 covers the ferry terminal emergency systems and the cold-storage compressors.",
+      "context": "definition",
+      "page": 2,
+      "section": "Site and System Overview",
+      "right": 0,
+      "wrong": 0,
+      "ordinal": 3,
+      "distractors": [
+        "The residential lifts, water pumps and corridor lighting",
+        "Electric-vehicle chargers and decorative lighting",
+        "The SCADA historian and the protection relays"
+      ]
+    },
+    {
+      "id": 4,
+      "deck": "demo-harbor-point-brief",
+      "front": "What state-of-charge window does the battery keep while grid-connected?",
+      "back": "Between 20% and 90%",
+      "excerpt": "While grid-connected, the battery is kept between 20% and 90% state of charge to slow cell ageing.",
+      "context": "concept",
+      "page": 3,
+      "section": "Storage and Dispatch",
+      "right": 0,
+      "wrong": 0,
+      "ordinal": 4,
+      "distractors": [
+        "Between 10% and 100%",
+        "Between 35% and 90%",
+        "Between 25% and 60%"
+      ]
+    },
+    {
+      "id": 5,
+      "deck": "demo-harbor-point-brief",
+      "front": "What reserve does the controller hold during storm season?",
+      "back": "At least 35% state of charge, from 1 June to 30 September",
+      "excerpt": "During storm season, from 1 June to 30 September, the controller holds a reserve of at least 35% state of charge so that the district can island at short notice.",
+      "context": "concept",
+      "page": 3,
+      "section": "Storage and Dispatch",
+      "right": 0,
+      "wrong": 0,
+      "ordinal": 5,
+      "distractors": [
+        "At least 20% state of charge, all year",
+        "At least 60% state of charge, from 1 June to 30 September",
+        "At least 35% state of charge, from 1 October to 31 March"
+      ]
+    },
+    {
+      "id": 6,
+      "deck": "demo-harbor-point-brief",
+      "front": "How quickly does the battery inverter take over after the breaker opens?",
+      "back": "Within 200 milliseconds, in grid-forming mode",
+      "excerpt": "When the breaker opens, the battery inverter switches to grid-forming mode within 200 milliseconds and sets the island's voltage and frequency.",
+      "context": "process",
+      "page": 5,
+      "section": "Islanding and Fault Response",
+      "right": 0,
+      "wrong": 0,
+      "ordinal": 6,
+      "distractors": [
+        "Within 2 seconds, in grid-following mode",
+        "Within 20 milliseconds, in grid-following mode",
+        "Within five minutes, after operator confirmation"
+      ]
+    },
+    {
+      "id": 7,
+      "deck": "demo-harbor-point-brief",
+      "front": "What must happen before the microgrid reconnects to the utility?",
+      "back": "Five minutes of stable utility voltage and an operator's confirmation",
+      "excerpt": "The controller resynchronises with the utility only after five minutes of stable utility voltage and an operator's confirmation.",
+      "context": "process",
+      "page": 5,
+      "section": "Islanding and Fault Response",
+      "right": 0,
+      "wrong": 0,
+      "ordinal": 7,
+      "distractors": [
+        "Two seconds of normal utility frequency",
+        "An automatic reclose after 200 milliseconds",
+        "A full battery and the utility's written approval"
+      ]
+    },
+    {
+      "id": 8,
+      "deck": "demo-harbor-point-brief",
+      "front": "How are the generators load-tested each quarter?",
+      "back": "On a load bank at 75% of rated output for two hours",
+      "excerpt": "Each quarter, both generators are tested on a load bank at 75% of rated output for two hours.",
+      "context": "process",
+      "page": 6,
+      "section": "Maintenance and Reporting",
+      "right": 0,
+      "wrong": 0,
+      "ordinal": 8,
+      "distractors": [
+        "At 100% of rated output for 30 minutes",
+        "At 50% of rated output for four hours",
+        "At 75% of rated output for eight hours"
+      ]
+    },
+    {
+      "id": 9,
+      "deck": "demo-harbor-point-brief",
+      "front": "How soon must an incident be written up in the operations log?",
+      "back": "Within 48 hours",
+      "excerpt": "Any unplanned island, shed load or equipment fault must be written up as an incident report in the operations log within 48 hours.",
+      "context": "timeline",
+      "page": 6,
+      "section": "Maintenance and Reporting",
+      "right": 0,
+      "wrong": 0,
+      "ordinal": 9,
+      "distractors": [
+        "Within 24 hours",
+        "Within 7 days",
+        "By the end of the month"
+      ]
+    },
+    {
+      "id": 10,
+      "deck": "demo-harbor-point-brief",
+      "front": "In what order does the controller use resources when the district serves its own load?",
+      "back": "Solar first, then the battery, then the biodiesel generators",
+      "excerpt": "Solar is used first and stored energy next; the generators are a last resort once the battery runs low.",
+      "context": "process",
+      "page": null,
+      "section": "Storage and Dispatch",
+      "right": 0,
+      "wrong": 0,
+      "ordinal": 10,
+      "distractors": [
+        "The generators first, then solar, then the battery",
+        "The battery first, then solar, then the generators",
+        "Solar first, then the generators, then the battery"
+      ]
+    }
+  ],
+  "toc": [
+    {
+      "id": 1,
+      "ordinal": 1,
+      "front": "What energy storage does the Harbor Point microgrid use?",
+      "section": "Site and System Overview",
+      "page": 1,
+      "context": "concept"
+    },
+    {
+      "id": 2,
+      "ordinal": 2,
+      "front": "How often does the microgrid controller run economic dispatch?",
+      "section": "Site and System Overview",
+      "page": 2,
+      "context": "process"
+    },
+    {
+      "id": 3,
+      "ordinal": 3,
+      "front": "Which loads are classed as Tier 1?",
+      "section": "Site and System Overview",
+      "page": 2,
+      "context": "definition"
+    },
+    {
+      "id": 4,
+      "ordinal": 4,
+      "front": "What state-of-charge window does the battery keep while grid-connected?",
+      "section": "Storage and Dispatch",
+      "page": 3,
+      "context": "concept"
+    },
+    {
+      "id": 5,
+      "ordinal": 5,
+      "front": "What reserve does the controller hold during storm season?",
+      "section": "Storage and Dispatch",
+      "page": 3,
+      "context": "concept"
+    },
+    {
+      "id": 6,
+      "ordinal": 6,
+      "front": "How quickly does the battery inverter take over after the breaker opens?",
+      "section": "Islanding and Fault Response",
+      "page": 5,
+      "context": "process"
+    },
+    {
+      "id": 7,
+      "ordinal": 7,
+      "front": "What must happen before the microgrid reconnects to the utility?",
+      "section": "Islanding and Fault Response",
+      "page": 5,
+      "context": "process"
+    },
+    {
+      "id": 8,
+      "ordinal": 8,
+      "front": "How are the generators load-tested each quarter?",
+      "section": "Maintenance and Reporting",
+      "page": 6,
+      "context": "process"
+    },
+    {
+      "id": 9,
+      "ordinal": 9,
+      "front": "How soon must an incident be written up in the operations log?",
+      "section": "Maintenance and Reporting",
+      "page": 6,
+      "context": "timeline"
+    },
+    {
+      "id": 10,
+      "ordinal": 10,
+      "front": "In what order does the controller use resources when the district serves its own load?",
+      "section": "Storage and Dispatch",
+      "page": null,
+      "context": "process"
+    }
+  ]
+}

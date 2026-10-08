@@ -249,7 +249,8 @@ export default function GameMC({ route, navigation }) {
   );
 
   const optionList = (
-    <View style={s.opts} accessibilityRole="list" accessibilityLabel="Answer options">
+    // A labelled group of buttons (a "list" would need list-item children; F6).
+    <View style={s.opts} role="group" accessibilityLabel="Answer options">
       {options.map((opt, i) => {
         const { state, tag } = optionState({ index: i, picked: mc.picked, correctIndex });
         const isPicked = mc.picked === i;

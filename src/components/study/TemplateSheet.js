@@ -94,6 +94,8 @@ export default function TemplateSheet({ visible, onClose, template, loading = fa
       transparent={asDialog}
       animationType={reduceMotion ? "none" : asDialog ? "fade" : "slide"}
       onRequestClose={onClose}
+      // The web dialog's accessible name (react-native-web passes it to role=dialog; F6).
+      aria-label="Study template"
     >
       {asDialog ? (
         <View style={s.scrim}>

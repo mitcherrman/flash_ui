@@ -104,6 +104,9 @@ export default function GamePicker({ route, navigation }) {
   }
 
   async function onViewTemplate() {
+    // The button stays enabled while loading (a disabled button drops focus,
+    // so the sheet couldn't hand it back on close); repeat presses are ignored.
+    if (tplLoading) return;
     setShowTpl(true);
     setTplError("");
     setTplLoading(true);
@@ -230,7 +233,6 @@ export default function GamePicker({ route, navigation }) {
                 title={tplLoading ? "Loading template…" : "Study template"}
                 variant="secondary"
                 onPress={onViewTemplate}
-                disabled={tplLoading}
               />
               <Button
                 title={
